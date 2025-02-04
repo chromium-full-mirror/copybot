@@ -1,0 +1,4 @@
+# GWSQ enabled alias to assign reviews. See code_reviews.md.
+copybot-maintainers@google.com
+
+include chromiumos/owners:v1:/firmware/OWNERS.copybot

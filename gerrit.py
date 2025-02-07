@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 _COMMIT_HASH_PATTERN = re.compile(r"\b[0-9a-f]{40}\b")
 
 # Matches a full 40-character parent commit hash.
-_PARENT_COMMIT_HASH_PATTERN = re.compile(r"parent\b[0-9a-f]{40}\b")
+_PARENT_COMMIT_HASH_PATTERN = re.compile(r"parent \b[0-9a-f]{40}\b")
 
 
 class MergeConflictBehavior(enum.Enum):

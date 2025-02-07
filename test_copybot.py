@@ -8,12 +8,13 @@ import json
 from unittest import mock
 
 import copybot
+import gerrit
 import pytest
 
 
 def test_prefix_pseudoheaders():
     """Test the .prefix() method of Pseudoheaders."""
-    pseudoheaders = copybot.Pseudoheaders(
+    pseudoheaders = gerrit.Pseudoheaders(
         [
             ("Signed-off-by", "Alyssa P. Hacker <aphacker@example.org>"),
             ("CQ-DEPEND", "chromium:1234,chrome-internal:5678"),
@@ -38,7 +39,7 @@ CQ-DEPEND: chromium:1234,chrome-internal:5678
         (None, {}),
         (Exception(), {"failure_reason": "FAILURE_UNKNOWN"}),
         (
-            copybot.MergeConflictsError(commits=["deadbeef", "deadd00d"]),
+            gerrit.MergeConflictsError(commits=["deadbeef", "deadd00d"]),
             {
                 "failure_reason": "FAILURE_MERGE_CONFLICTS",
                 "merge_conflicts": [{"hash": "deadbeef"}, {"hash": "deadd00d"}],
@@ -55,9 +56,9 @@ def test_write_json_error(tmp_path, exception, expected):
 def test_main_raise_error(tmp_path):
     err_out = tmp_path / "err.json"
     with mock.patch(
-        "copybot.run_copybot", side_effect=copybot.PushError("failed to push")
+        "copybot.run_copybot", side_effect=gerrit.PushError("failed to push")
     ):
-        with pytest.raises(copybot.PushError):
+        with pytest.raises(gerrit.PushError):
             copybot.main(
                 argv=["--json-out", str(err_out), "upstream", "downstream"]
             )

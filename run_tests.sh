@@ -15,10 +15,10 @@ cd "$(dirname "$(realpath -e "${BASH_SOURCE[0]}")")"
 export PYTHONPATH="${PWD}"
 
 # Run pytest.
-pytest -v
+cros_sdk --working-dir . pytest -v
 
-# Do a dry run of the service spawner to validate the YAML config.
-./service_spawner.py --dry-run >/dev/null
+# Run mypy
+cros_sdk --working-dir . ../../chromite/scripts/mypy .
 
 # Check for formatting issues (also reports during pre-upload).
 cros lint .

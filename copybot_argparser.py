@@ -13,7 +13,7 @@ import pathlib
 import gerrit
 
 
-def generate_copybot_arg_parser() -> argparse.Namespace:
+def generate_copybot_arg_parser() -> argparse.ArgumentParser:
     """The entry point to the program."""
     parser = argparse.ArgumentParser(description="CopyBot")
     parser.add_argument(
@@ -88,7 +88,8 @@ def generate_copybot_arg_parser() -> argparse.Namespace:
     parser.add_argument(
         "--exclude-method",
         help="How to handle exclusions.  DROP: Drop the change."
-        "FILTER: Filter the exclude-file-pattern matching files out of the CLs.",
+        "FILTER: Filter the exclude-file-pattern matching files out of"
+        " the CLs.",
         default="DROP",
         choices=[behavior.name for behavior in gerrit.ExclusionBehavior],
     )

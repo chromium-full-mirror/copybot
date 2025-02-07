@@ -14,10 +14,6 @@ Usage: copybot.py [options...] upstream_repo:branch downstream_repo:branch
 # [VPYTHON:BEGIN]
 # python_version: "3.8"
 # wheel: <
-#   name: "infra/python/wheels/requests-py3"
-#   version: "version:2.31.0"
-# >
-# wheel: <
 #   name: "infra/python/wheels/certifi-py2_py3"
 #   version: "version:2020.11.8"
 # >
@@ -40,12 +36,14 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import pathlib
 import re
 import subprocess
 import tempfile
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 import urllib
+import urllib.parse
 
 import copybot_argparser
 import gerrit
@@ -131,7 +129,7 @@ def find_last_merged_rev(
             return origin_revid or rev, counter
 
     for rev in upstream_hashes:
-        if rev in pending_changes:
+        if pending_changes and rev in pending_changes:
             counter = upstream_hashes.index(rev)
             return rev, counter
 
@@ -203,7 +201,7 @@ def find_commits_to_copy(
     upstream_limit: int = 0,
     downstream_limit: int = 0,
     exclude_file_patterns: Iterable[str] = (),
-    filter_file_patterns: Iterable[str] = (),
+    filter_file_patterns: Optional[List[re.Pattern[Any]]] = None,
     pending_changes: Optional[Dict[str, gerrit.GerritClInfo]] = None,
     abandoned_changes: Optional[Dict[str, gerrit.GerritClInfo]] = None,
     skip_copybot_job_names: Iterable[str] = (),
@@ -211,7 +209,9 @@ def find_commits_to_copy(
     include_change_id: bool = False,
     upstream_history_length: int = 0,
     downstream_history_length: int = 0,
-) -> List[str]:
+) -> Tuple[
+    List[str], Dict[str, List[str]], Dict[str, List[str]], List[str], bool
+]:
     """Find the commits to copy to downstream.
 
     Args:
@@ -353,7 +353,9 @@ def find_commits_to_copy(
         commit_files = repo.commit_file_list(rev)
         filtered_commit_files = []
         for path in commit_files:
-            if not any(p.fullmatch(path) for p in filter_file_patterns):
+            if not any(
+                re.fullmatch(p, path) for p in filter_file_patterns or []
+            ):
                 filtered_commit_files.append(path)
 
         if not filtered_commit_files:
@@ -596,8 +598,8 @@ def run_copybot(
     merge_conflict_behavior = gerrit.MergeConflictBehavior[
         args.merge_conflict_behavior
     ]
-    pending_changes = {}
-    abandoned_changes = {}
+    pending_changes: Dict[str, gerrit.GerritClInfo] = {}
+    abandoned_changes: Dict[str, gerrit.GerritClInfo] = {}
     gerrit_inst: Optional[gerrit.Gerrit] = None
     if (m := is_server_gob(str(downstream_url))) is not None:
         downstream_gob_host = m.group(1)
@@ -708,8 +710,8 @@ def run_copybot(
         # Remove the downstream limit to find it in the history correctly.
         args.downstream_history_limit = downstream_history_length
 
-    commit_files_map = {}
-    skipped_files_map = {}
+    commit_files_map: Dict[str, List[str]] = {}
+    skipped_files_map: Dict[str, List[str]] = {}
 
     (
         commits_to_copy,
@@ -786,7 +788,7 @@ def run_copybot(
         logger.info("Checking out the top change: %s.", pending_rev)
         repo.fetch(
             downstream_url,
-            pending_changes[pending_rev].current_ref,
+            pending_changes[str(pending_rev)].current_ref,
         )
         repo.checkout("FETCH_HEAD")
     else:

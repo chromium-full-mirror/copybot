@@ -8,4 +8,4 @@ import pathlib
 import site
 
 
-site.addsitedir(pathlib.Path(__file__).parent)
+site.addsitedir(str(pathlib.Path(__file__).parent))

@@ -7,6 +7,14 @@
 This library contains all of the functionality for gerrit used by copybot.
 """
 
+# [VPYTHON:BEGIN]
+# python_version: "3.8"
+# wheel: <
+#   name: "infra/python/wheels/requests-py3"
+#   version: "version:2.31.0"
+# >
+# [VPYTHON:END]
+
 from __future__ import annotations
 
 import contextlib
@@ -210,7 +218,7 @@ class GitRepo:
             [f":!{path}" for path in (exclude_file_patterns or [])]
         )
         if subtree:
-            extra_args.append(subtree)
+            extra_args.append(str(subtree))
         return self._run_git("log", revision_range, *extra_args)
 
     def log_hashes(
@@ -480,20 +488,22 @@ class GitRepo:
                         raise EmptyCommitError() from e
                     raise MergeConflictError() from e
 
-        cherry_pick_flag_list: Tuple[List[str], ...] = (
-            [],
-            ["-Xpatience"],
-            ["--strategy=recursive", "-X", "theirs"],
-        )
+        cherry_pick_flag_list: List[List[str]] = []
         if self.is_merge_commit(rev):
-            cherry_pick_flag_list: Tuple[List[str], ...] = (
+            cherry_pick_flag_list += [
                 ["-m", "1"],
                 ["-m", "1", "-Xpatience"],
                 ["-m", "2"],
                 ["-m", "2", "-Xpatience"],
-            )
+            ]
+        else:
+            cherry_pick_flag_list += [
+                [],
+                ["-Xpatience"],
+                ["--strategy=recursive", "-X", "theirs"],
+            ]
         if downstream_subtree or upstream_subtree or include_paths:
-            cherry_pick_flag_list = ()
+            cherry_pick_flag_list = []
         for flags in cherry_pick_flag_list:
             try:
                 _try_cherry_pick(flags)
@@ -561,7 +571,7 @@ class GitRepo:
         args.append(f"{original_rev}..{current_rev}")
         if subtree:
             args.append("--")
-            args.append(subtree)
+            args.append(str(subtree))
         result = self._run_git("rev-list", *args)
         return int(result.stdout.rstrip())
 
@@ -739,7 +749,7 @@ class Gerrit:
         hashtags: Iterable[str] = (),
         subtree: Union[str, "os.PathLike[str]"] = "",
         exclude_paths: Iterable[str] = (),
-    ) -> Dict[str, GerritClInfo]:
+    ) -> Tuple[Dict[str, GerritClInfo], Dict[str, GerritClInfo]]:
         """Find pending changes previously opened by CopyBot on Gerrit.
 
         Returns:

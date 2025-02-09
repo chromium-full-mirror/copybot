@@ -14,6 +14,10 @@ Usage: copybot.py [options...] upstream_repo:branch downstream_repo:branch
 # [VPYTHON:BEGIN]
 # python_version: "3.8"
 # wheel: <
+#   name: "infra/python/wheels/requests-py3"
+#   version: "version:2.31.0"
+# >
+# wheel: <
 #   name: "infra/python/wheels/certifi-py2_py3"
 #   version: "version:2020.11.8"
 # >

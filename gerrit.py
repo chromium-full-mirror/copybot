@@ -7,14 +7,6 @@
 This library contains all of the functionality for gerrit used by copybot.
 """
 
-# [VPYTHON:BEGIN]
-# python_version: "3.8"
-# wheel: <
-#   name: "infra/python/wheels/requests-py3"
-#   version: "version:2.31.0"
-# >
-# [VPYTHON:END]
-
 from __future__ import annotations
 
 import contextlib

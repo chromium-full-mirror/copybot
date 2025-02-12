@@ -12,10 +12,8 @@ set -e
 # cd to the directory containing this script.
 cd "$(dirname "$(realpath -e "${BASH_SOURCE[0]}")")"
 
-export PYTHONPATH="${PWD}"
-
 # Run pytest.
-cros_sdk --working-dir . pytest -v
+./pytest_wrapper -v
 
 # Run mypy.
 ../../chromite/scripts/mypy .

@@ -17,8 +17,8 @@ export PYTHONPATH="${PWD}"
 # Run pytest.
 cros_sdk --working-dir . pytest -v
 
-# Run mypy
-cros_sdk --working-dir . ../../chromite/scripts/mypy .
+# Run mypy.
+../../chromite/scripts/mypy .
 
 # Check for formatting issues (also reports during pre-upload).
 cros lint .

@@ -105,6 +105,12 @@ def generate_copybot_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
     )
     parser.add_argument(
+        "--no-filter-changes",
+        help="Filter changes to the up/downstream subtree paths",
+        action="store_false",
+        dest="filter_changes",
+    )
+    parser.add_argument(
         "--keep-pseudoheader",
         help="Keep a pseudoheader from being prefixed",
         action="append",

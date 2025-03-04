@@ -750,6 +750,10 @@ def run_copybot(
     empty_revs = []
     skipped_revs = []
 
+    if not args.filter_changes:
+        downstream_subtree = ""
+        upstream_subtree = ""
+
     if args.limit > 0 and len(commits_to_copy) > args.limit:
         logger.warning(
             "Limiting commits to copy from %s to %s",

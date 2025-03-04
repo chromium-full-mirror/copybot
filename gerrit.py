@@ -76,6 +76,10 @@ class EmptyCommitError(Exception):
     """A commit cannot be cherry-picked as it results in an empty commit."""
 
 
+class CommitDoesNotApplyError(Exception):
+    """A commit cannot be cherry-picked as it does not apply."""
+
+
 class CopybotFatalError(Exception):
     """Copybot fatal error."""
 
@@ -451,6 +455,8 @@ class GitRepo:
         Raises:
             EmptyCommitError: The resultant commit was empty and should be
                 skipped.
+            CommitDoesNotApplyError: The desired upstream CL does not apply
+                to the downstream repo.
             MergeConflictError: There was a merge conflict that could not
                 be resolved automatically with -Xpatience.
         """
@@ -467,6 +473,9 @@ class GitRepo:
                         logger.warning("Merge commit detected")
                     raise MergeConflictError() from err
                 if allow_conflict:
+                    if "patch does not apply" in e.stderr:
+                        logger.warning("Patch does not apply to downstream")
+                        raise CommitDoesNotApplyError() from e
                     self.add(downstream_subtree, stage=True, force=True)
                     self.commit(
                         self.get_commit_message(rev),

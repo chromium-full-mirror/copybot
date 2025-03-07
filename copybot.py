@@ -516,6 +516,16 @@ def is_server_gob(url: str) -> re.Match[str] | None:
     )
 
 
+def is_related_repo(config: copybot_argparser.CopybotConfig) -> bool:
+    return bool(
+        config.upstream.url == config.downstream.url
+        or (
+            is_server_gob(str(config.downstream.url))
+            and is_server_gob(str(config.upstream.url))
+        )
+    )
+
+
 def run_copybot(
     config: copybot_argparser.CopybotConfig,
     git_dir: Union[str, "os.PathLike[str]"],
@@ -528,26 +538,16 @@ def run_copybot(
         git_dir: A temporary or local directory to use for Git operations.
         patch_dir: A temporary directory to use for storing patch files.
     """
-    insert_into_msg = {}
-    for msg in config.downstream.insert_into_msg:
-        index, _, msg = msg.partition(":")
-        insert_into_msg[int(index)] = msg
-
     if config.downstream.is_local:
         git_dir = config.downstream.url
 
-    keep_pseudoheaders = list(config.downstream.keep_pseudoheaders)
     related_repo = False
-    if config.upstream.url == config.downstream.url or (
-        is_server_gob(str(config.downstream.url))
-        and is_server_gob(str(config.upstream.url))
-    ):
+
+    if is_related_repo(config):
         related_repo = True
-        if "Change-Id" not in keep_pseudoheaders:
-            keep_pseudoheaders.append("Change-Id")
-    merge_conflict_behavior = gerrit.MergeConflictBehavior[
-        config.merge_conflict_behavior
-    ]
+        if "Change-Id" not in config.downstream.keep_pseudoheaders:
+            config.downstream.keep_pseudoheaders.append("Change-Id")
+
     pending_changes: Dict[str, gerrit.GerritClInfo] = {}
     abandoned_changes: Dict[str, gerrit.GerritClInfo] = {}
     gerrit_inst: Optional[gerrit.Gerrit] = None
@@ -801,16 +801,22 @@ def run_copybot(
             continue
         except gerrit.MergeConflictError as e:
             logger.error("Merge conflict cherry-picking %s!", rev)
-            if merge_conflict_behavior is gerrit.MergeConflictBehavior.SKIP:
+            if (
+                config.merge_conflict_behavior
+                is gerrit.MergeConflictBehavior.SKIP
+            ):
                 logger.warning("Skipping %s", rev)
                 skipped_revs.append(rev)
                 continue
-            elif merge_conflict_behavior is gerrit.MergeConflictBehavior.STOP:
+            elif (
+                config.merge_conflict_behavior
+                is gerrit.MergeConflictBehavior.STOP
+            ):
                 logger.warning("Stopping at revision %s", rev)
                 skipped_revs.extend(list(reversed(commits_to_copy))[i:])
                 break
             elif (
-                merge_conflict_behavior
+                config.merge_conflict_behavior
                 is gerrit.MergeConflictBehavior.ALLOW_CONFLICT
             ):
                 logger.warning("Committing %s with conflicts", rev)
@@ -830,7 +836,7 @@ def run_copybot(
                             filtered_rev or rev,
                             patch_dir=patch_dir,
                             upstream_subtree=config.upstream.subtree,
-                            downstream_subtree=config.upstream.subtree,
+                            downstream_subtree=config.downstream.subtree,
                             include_paths=config.downstream.include_paths,
                             exclude_paths=config.drop_paths,
                             allow_conflict=True,
@@ -850,9 +856,9 @@ def run_copybot(
                         change_id=change_id or gerrit.generate_change_id(),
                         skipped_files=skipped_files_map[rev],
                         prepend_subject=config.downstream.prepend_subject,
-                        insert_into_msg=insert_into_msg,
+                        insert_into_msg=config.downstream.insert_into_msg,
                         sign_off=config.add_signed_off_by,
-                        keep_pseudoheaders=keep_pseudoheaders,
+                        keep_pseudoheaders=config.downstream.keep_pseudoheaders,
                         additional_pseudoheaders=[
                             *config.downstream.add_pseudoheaders,
                             "Commit: false",
@@ -871,9 +877,9 @@ def run_copybot(
                 change_id=change_id or gerrit.generate_change_id(),
                 skipped_files=skipped_files_map[rev],
                 prepend_subject=config.downstream.prepend_subject,
-                insert_into_msg=insert_into_msg,
+                insert_into_msg=config.downstream.insert_into_msg,
                 sign_off=config.add_signed_off_by,
-                keep_pseudoheaders=keep_pseudoheaders,
+                keep_pseudoheaders=config.downstream.keep_pseudoheaders,
                 additional_pseudoheaders=config.downstream.add_pseudoheaders,
             )
         current_change = repo.log(num=1, fmt="%H").stdout.strip()
@@ -966,9 +972,10 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     err = None
     try:
-        with tempfile.TemporaryDirectory(
-            ".copybot"
-        ) as git_dir, tempfile.TemporaryDirectory("_patches") as patch_dir:
+        with (
+            tempfile.TemporaryDirectory(".copybot") as git_dir,
+            tempfile.TemporaryDirectory("_patches") as patch_dir,
+        ):
             run_copybot(config, git_dir, patch_dir)
     except Exception as e:
         err = e

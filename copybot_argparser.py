@@ -19,6 +19,14 @@ import urllib.parse
 import gerrit
 
 
+def parse_insert_into_msg(insert_into_msg: list[str]) -> dict[int, str]:
+    result = {}
+    for msg in insert_into_msg:
+        index, _, msg = msg.partition(":")
+        result[int(index)] = msg
+    return result
+
+
 def parse_repo_info(repo_string: str) -> tuple[bool, str, str, str]:
     """Parse colon-separated repo info string with URL, branch and subtree."""
 
@@ -63,7 +71,7 @@ class DownstreamConfig:
     push_options: list[str]
     hashtags: list[str]
     prepend_subject: str
-    insert_into_msg: list[str]
+    insert_into_msg: dict[int, str]
     keep_pseudoheaders: list[str]
     limit: int
     history_limit: int
@@ -97,7 +105,7 @@ class CopybotConfig:
     filter_file_patterns: list[re.Pattern]
     drop_paths: list[str | os.PathLike[str]]
     exclude_method: str
-    merge_conflict_behavior: str
+    merge_conflict_behavior: gerrit.MergeConflictBehavior
     add_signed_off_by: bool
     filter_changes: bool
     skip_job_name: list[str]
@@ -310,8 +318,8 @@ def parse_copybot_config(argv: list[str] | None = None) -> CopybotConfig:
         push_options=opts.push_options,
         hashtags=opts.hashtags,
         prepend_subject=opts.prepend_subject,
-        insert_into_msg=opts.insert_into_msg,
-        keep_pseudoheaders=opts.keep_pseudoheaders,
+        insert_into_msg=parse_insert_into_msg(opts.insert_into_msg),
+        keep_pseudoheaders=list(opts.keep_pseudoheaders),
         limit=opts.limit,
         history_limit=opts.downstream_history_limit,
         include_paths=opts.include_downstream,
@@ -336,7 +344,9 @@ def parse_copybot_config(argv: list[str] | None = None) -> CopybotConfig:
         filter_file_patterns=filter_file_patterns,
         drop_paths=drop_paths,
         exclude_method=opts.exclude_method,
-        merge_conflict_behavior=opts.merge_conflict_behavior,
+        merge_conflict_behavior=gerrit.MergeConflictBehavior[
+            opts.merge_conflict_behavior
+        ],
         add_signed_off_by=opts.add_signed_off_by,
         filter_changes=opts.filter_changes,
         skip_job_name=opts.skip_job_name,

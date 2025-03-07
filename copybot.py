@@ -37,7 +37,6 @@ Usage: copybot.py [options...] upstream_repo:branch downstream_repo:branch
 
 from __future__ import annotations
 
-import argparse
 import json
 import logging
 import os
@@ -62,7 +61,7 @@ def find_last_merged_rev(
     downstream_rev: str,
     upstream_subtree: str = "",
     downstream_subtree: str = "",
-    exclude_file_patterns: Iterable[str] = (),
+    exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
     include_change_id: bool = False,
     upstream_history_length: int = 0,
     downstream_history_length: int = 0,
@@ -147,7 +146,7 @@ def get_downstreamed_list(
     repo: gerrit.GitRepo,
     downstream_rev: str,
     downstream_subtree: str = "",
-    exclude_file_patterns: Iterable[str] = (),
+    exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
     limit: int = 0,
     upstream_change_ids: Optional[Dict[str, str]] = None,
     downstream_history_length: int = 0,
@@ -204,7 +203,7 @@ def find_commits_to_copy(
     include_paths: List[Union[str, "os.PathLike[str]"]],
     upstream_limit: int = 0,
     downstream_limit: int = 0,
-    exclude_file_patterns: Iterable[str] = (),
+    exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
     filter_file_patterns: Optional[List[re.Pattern[Any]]] = None,
     pending_changes: Optional[Dict[str, gerrit.GerritClInfo]] = None,
     abandoned_changes: Optional[Dict[str, gerrit.GerritClInfo]] = None,
@@ -473,12 +472,14 @@ def rewrite_commit_message(
 
 
 def get_push_refspec(
-    args: argparse.Namespace, downstream_branch: str, skip_cq: bool
+    config: copybot_argparser.CopybotConfig,
+    downstream_branch: str,
+    skip_cq: bool,
 ) -> str:
     """Generate a push refspec for Gerrit.
 
     Args:
-        args: The parsed command line arguments.
+        config: The parsed command line arguments.
         downstream_branch: The branch to push to.
         skip_cq: Whether the copied CL stack should not be submitted to CQ.
 
@@ -491,19 +492,19 @@ def get_push_refspec(
         for option in value.split(","):
             push_options.append(f"{key}={option}")
 
-    for label in args.labels:
+    for label in config.downstream.labels:
         if skip_cq and (label in ["Bot-Commit+1", "Commit-Queue+2"]):
             logger.info("Skipping CQ")
             continue
         _add_push_option("l", label)
 
-    for cc in args.ccs:
+    for cc in config.downstream.ccs:
         _add_push_option("cc", cc)
 
-    for reviewer in args.reviewers:
+    for reviewer in config.downstream.reviewers:
         _add_push_option("r", reviewer)
 
-    for hashtag in [args.topic, *args.hashtags]:
+    for hashtag in [config.topic, *config.downstream.hashtags]:
         _add_push_option("t", hashtag)
 
     return f"HEAD:refs/for/{downstream_branch}%{','.join(push_options)}"
@@ -550,48 +551,48 @@ def parse_repo_info(repo_string: str) -> Tuple[bool, str, str, str]:
 
 
 def run_copybot(
-    args: argparse.Namespace,
+    config: copybot_argparser.CopybotConfig,
     git_dir: Union[str, "os.PathLike[str]"],
     patch_dir: Union[str, "os.PathLike[str]"],
 ) -> None:
     """Run copybot.
 
     Args:
-        args: The parsed command line arguments.
+        config: The parsed command line arguments.
         git_dir: A temporary or local directory to use for Git operations.
         patch_dir: A temporary directory to use for storing patch files.
     """
     drop_paths = []
     if (
-        gerrit.ExclusionBehavior[args.exclude_method]
+        gerrit.ExclusionBehavior[config.exclude_method]
         == gerrit.ExclusionBehavior.DROP
     ):
-        drop_paths = args.exclude_file_patterns
+        drop_paths = config.exclude_file_patterns
     filter_file_patterns = [
-        re.compile(pattern) for pattern in args.exclude_file_patterns
+        re.compile(str(pattern)) for pattern in config.exclude_file_patterns
     ]
     (
         _,
         upstream_url,
         upstream_branch,
         upstream_subtree,
-    ) = parse_repo_info(args.upstream)
+    ) = parse_repo_info(config.upstream_url)
     (
         local_downstream,
         downstream_url,
         downstream_branch,
         downstream_subtree,
-    ) = parse_repo_info(args.downstream)
+    ) = parse_repo_info(config.downstream.url)
 
     insert_into_msg = {}
-    for msg in args.insert_into_msg:
+    for msg in config.downstream.insert_into_msg:
         index, _, msg = msg.partition(":")
         insert_into_msg[int(index)] = msg
 
     if local_downstream:
         git_dir = downstream_url
 
-    keep_pseudoheaders = list(args.keep_pseudoheaders)
+    keep_pseudoheaders = list(config.downstream.keep_pseudoheaders)
     related_repo = False
     if upstream_url == downstream_url or (
         is_server_gob(str(downstream_url)) and is_server_gob(str(upstream_url))
@@ -600,7 +601,7 @@ def run_copybot(
         if "Change-Id" not in keep_pseudoheaders:
             keep_pseudoheaders.append("Change-Id")
     merge_conflict_behavior = gerrit.MergeConflictBehavior[
-        args.merge_conflict_behavior
+        config.merge_conflict_behavior
     ]
     pending_changes: Dict[str, gerrit.GerritClInfo] = {}
     abandoned_changes: Dict[str, gerrit.GerritClInfo] = {}
@@ -615,7 +616,7 @@ def run_copybot(
         pending_changes, abandoned_changes = gerrit_inst.find_pending_changes(
             project=downstream_project,
             branch=downstream_branch,
-            hashtags=[args.topic],
+            hashtags=[config.topic],
             subtree=downstream_subtree,
             exclude_paths=drop_paths,
         )
@@ -640,20 +641,20 @@ def run_copybot(
         ) from e
     upstream_history_length = 0
     downstream_history_length = 0
-    if args.upstream_history_starts_with:
+    if config.upstream_history_starts_with:
         upstream_history_length = (
             repo.get_cl_count(
-                args.upstream_history_starts_with,
+                config.upstream_history_starts_with,
                 upstream_rev,
                 upstream_subtree,
             )
             + 1
         )
         logger.info("Upstream history length: %d", upstream_history_length)
-    if args.downstream_history_starts_with:
+    if config.downstream.history_starts_with:
         downstream_history_length = (
             repo.get_cl_count(
-                args.downstream_history_starts_with,
+                config.downstream.history_starts_with,
                 downstream_rev,
                 downstream_subtree,
             )
@@ -699,20 +700,20 @@ def run_copybot(
     num_cls_to_downstream += len(pending_changes)
 
     if (
-        num_cls_to_downstream > args.upstream_history_limit
-        and args.upstream_history_limit != 0
+        num_cls_to_downstream > config.upstream_history_limit
+        and config.upstream_history_limit != 0
     ):
         logger.warning(
             "There are %s CLs between HEAD and %s but the history limit is"
             " set to %s. Raising the history limit to accommodate this.",
             num_cls_to_downstream,
             last_related_rev,
-            args.upstream_history_limit,
+            config.upstream_history_limit,
         )
-        args.upstream_history_limit = num_cls_to_downstream
+        config.upstream_history_limit = num_cls_to_downstream
         # The reference CL may have been cherry-picked out of order.
         # Remove the downstream limit to find it in the history correctly.
-        args.downstream_history_limit = downstream_history_length
+        config.downstream.history_limit = downstream_history_length
 
     commit_files_map: Dict[str, List[str]] = {}
     skipped_files_map: Dict[str, List[str]] = {}
@@ -729,15 +730,15 @@ def run_copybot(
         upstream_subtree,
         downstream_rev,
         downstream_subtree,
-        include_paths=args.include_downstream,
-        upstream_limit=args.upstream_history_limit,
-        downstream_limit=args.downstream_history_limit,
+        include_paths=config.downstream.include_paths,
+        upstream_limit=config.upstream_history_limit,
+        downstream_limit=config.downstream.history_limit,
         exclude_file_patterns=drop_paths,
         filter_file_patterns=filter_file_patterns,
         pending_changes=pending_changes,
         abandoned_changes=abandoned_changes,
-        skip_copybot_job_names=args.skip_job_name,
-        skip_author_emails=args.skip_author_email,
+        skip_copybot_job_names=config.skip_job_name,
+        skip_author_emails=config.skip_author_email,
         upstream_history_length=upstream_history_length,
         downstream_history_length=downstream_history_length,
     )
@@ -750,17 +751,17 @@ def run_copybot(
     empty_revs = []
     skipped_revs = []
 
-    if not args.filter_changes:
+    if not config.filter_changes:
         downstream_subtree = ""
         upstream_subtree = ""
 
-    if args.limit > 0 and len(commits_to_copy) > args.limit:
+    if 0 < config.downstream.limit < len(commits_to_copy):
         logger.warning(
             "Limiting commits to copy from %s to %s",
             len(commits_to_copy),
-            args.limit,
+            config.downstream.limit,
         )
-        commits_to_copy = commits_to_copy[-args.limit :]
+        commits_to_copy = commits_to_copy[-config.downstream.limit :]
 
     # Determine if there is a pending change at the beginning of the stack.
     #  If so, find the CL at the top of the pending stack.
@@ -840,7 +841,7 @@ def run_copybot(
                     patch_dir=patch_dir,
                     upstream_subtree=upstream_subtree,
                     downstream_subtree=downstream_subtree,
-                    include_paths=args.include_downstream,
+                    include_paths=config.downstream.include_paths,
                     exclude_paths=drop_paths,
                 )
         except gerrit.EmptyCommitError:
@@ -877,7 +878,7 @@ def run_copybot(
                             patch_dir=patch_dir,
                             upstream_subtree=upstream_subtree,
                             downstream_subtree=downstream_subtree,
-                            include_paths=args.include_downstream,
+                            include_paths=config.downstream.include_paths,
                             exclude_paths=drop_paths,
                             allow_conflict=True,
                         )
@@ -895,12 +896,12 @@ def run_copybot(
                         upstream_rev=rev,
                         change_id=change_id or gerrit.generate_change_id(),
                         skipped_files=skipped_files_map[rev],
-                        prepend_subject=args.prepend_subject,
+                        prepend_subject=config.downstream.prepend_subject,
                         insert_into_msg=insert_into_msg,
-                        sign_off=args.add_signed_off_by,
+                        sign_off=config.add_signed_off_by,
                         keep_pseudoheaders=keep_pseudoheaders,
                         additional_pseudoheaders=[
-                            *args.add_pseudoheaders,
+                            *config.downstream.add_pseudoheaders,
                             "Commit: false",
                         ],
                     )
@@ -916,11 +917,11 @@ def run_copybot(
                 upstream_rev=rev,
                 change_id=change_id or gerrit.generate_change_id(),
                 skipped_files=skipped_files_map[rev],
-                prepend_subject=args.prepend_subject,
+                prepend_subject=config.downstream.prepend_subject,
                 insert_into_msg=insert_into_msg,
-                sign_off=args.add_signed_off_by,
+                sign_off=config.add_signed_off_by,
                 keep_pseudoheaders=keep_pseudoheaders,
-                additional_pseudoheaders=args.add_pseudoheaders,
+                additional_pseudoheaders=config.downstream.add_pseudoheaders,
             )
         current_change = repo.log(num=1, fmt="%H").stdout.strip()
         logger.info("Revision %s cherry-picked as %s", rev, current_change)
@@ -929,11 +930,13 @@ def run_copybot(
         logger.info("Nothing to push!")
     else:
         skip_cq = any(conflicted_revs) or pending_to_submit
-        push_refspec = get_push_refspec(args, downstream_branch, skip_cq)
-        if not args.dry_run and not local_downstream:
+        push_refspec = get_push_refspec(config, downstream_branch, skip_cq)
+        if not config.dry_run and not local_downstream:
             try:
                 repo.push(
-                    downstream_url, push_refspec, options=args.push_options
+                    downstream_url,
+                    push_refspec,
+                    options=config.downstream.push_options,
                 )
             except subprocess.CalledProcessError as e:
                 raise gerrit.PushError(
@@ -994,14 +997,13 @@ def write_json_error(path: pathlib.Path, err: Exception | None) -> None:
 
 
 def main(argv: Optional[List[str]] = None) -> None:
-    parser = copybot_argparser.generate_copybot_arg_parser()
-    opts = parser.parse_args(argv)
+    config = copybot_argparser.parse_copybot_config(argv)
     logging.basicConfig(
         format="%(asctime)s %(levelname)s: %(message)s",
         level=logging.INFO,
     )
 
-    if 0 < opts.downstream_history_limit < opts.upstream_history_limit:
+    if 0 < config.downstream.history_limit < config.upstream_history_limit:
         logger.warning(
             "Using a lower downstream limit than upstream limit may cause"
             " previously downstreamed changes to be chosen again."
@@ -1012,13 +1014,13 @@ def main(argv: Optional[List[str]] = None) -> None:
         with tempfile.TemporaryDirectory(
             ".copybot"
         ) as git_dir, tempfile.TemporaryDirectory("_patches") as patch_dir:
-            run_copybot(opts, git_dir, patch_dir)
+            run_copybot(config, git_dir, patch_dir)
     except Exception as e:
         err = e
         raise
     finally:
-        if opts.json_out:
-            write_json_error(opts.json_out, err)
+        if config.json_out:
+            write_json_error(config.json_out, err)
 
 
 if __name__ == "__main__":

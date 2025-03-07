@@ -201,7 +201,7 @@ class GitRepo:
         fmt: str = "",
         num: int = 0,
         subtree: Union[str, "os.PathLike[str]"] = "",
-        exclude_file_patterns: Iterable[str] = (),
+        exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
     ) -> "subprocess.CompletedProcess[str]":
         """Do a `git log`."""
         extra_args = ["--first-parent"]
@@ -222,7 +222,7 @@ class GitRepo:
         revision_range: str = "HEAD",
         num: int = 0,
         subtree: Union[str, "os.PathLike[str]"] = "",
-        exclude_file_patterns: Iterable[str] = (),
+        exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
     ) -> List[str]:
         """Get the commit log as a list of commit hashes."""
         result = self.log(
@@ -749,7 +749,7 @@ class Gerrit:
         branch: str,
         hashtags: Iterable[str] = (),
         subtree: Union[str, "os.PathLike[str]"] = "",
-        exclude_paths: Iterable[str] = (),
+        exclude_paths: Iterable[str | "os.PathLike[str]"] = (),
     ) -> Tuple[Dict[str, GerritClInfo], Dict[str, GerritClInfo]]:
         """Find pending changes previously opened by CopyBot on Gerrit.
 

@@ -8,12 +8,54 @@ Used for generating a common config to use across different downstream projects.
 """
 
 import argparse
+import dataclasses
+import os
 import pathlib
 
 import gerrit
 
 
-def generate_copybot_arg_parser() -> argparse.ArgumentParser:
+@dataclasses.dataclass
+class DownstreamConfig:
+    """Dataclass for downstream repo target config."""
+
+    labels: list[str]
+    reviewers: list[str]
+    ccs: list[str]
+    push_options: list[str]
+    hashtags: list[str]
+    prepend_subject: str
+    insert_into_msg: list[str]
+    keep_pseudoheaders: list[str]
+    limit: int
+    history_limit: int
+    include_paths: list[str | os.PathLike[str]]
+    add_pseudoheaders: list[str]
+    history_starts_with: str
+    url: str
+
+
+@dataclasses.dataclass
+class CopybotConfig:
+    """Options that change Copybot functionality."""
+
+    topic: str
+    json_out: pathlib.Path
+    dry_run: bool
+    exclude_file_patterns: list[str | os.PathLike[str]]
+    exclude_method: str
+    merge_conflict_behavior: str
+    add_signed_off_by: bool
+    filter_changes: bool
+    upstream_history_limit: int
+    skip_job_name: list[str]
+    skip_author_email: list[str]
+    upstream_history_starts_with: str
+    downstream: DownstreamConfig
+    upstream_url: str
+
+
+def parse_copybot_config(argv: list[str] | None = None) -> CopybotConfig:
     """The entry point to the program."""
     parser = argparse.ArgumentParser(description="CopyBot")
     parser.add_argument(
@@ -184,5 +226,39 @@ def generate_copybot_arg_parser() -> argparse.ArgumentParser:
         help="Downstream Git URL, optionally with a branch and subtree"
         "separated by colons",
     )
+    opts = parser.parse_args(argv)
 
-    return parser
+    downstream_config = DownstreamConfig(
+        labels=opts.labels,
+        reviewers=opts.reviewers,
+        ccs=opts.ccs,
+        push_options=opts.push_options,
+        hashtags=opts.hashtags,
+        prepend_subject=opts.prepend_subject,
+        insert_into_msg=opts.insert_into_msg,
+        keep_pseudoheaders=opts.keep_pseudoheaders,
+        limit=opts.limit,
+        history_limit=opts.downstream_history_limit,
+        include_paths=opts.include_downstream,
+        add_pseudoheaders=opts.add_pseudoheaders,
+        history_starts_with=opts.downstream_history_starts_with,
+        url=opts.downstream,
+    )
+    copybot_config = CopybotConfig(
+        topic=opts.topic,
+        json_out=opts.json_out,
+        dry_run=opts.dry_run,
+        exclude_file_patterns=opts.exclude_file_patterns,
+        exclude_method=opts.exclude_method,
+        merge_conflict_behavior=opts.merge_conflict_behavior,
+        add_signed_off_by=opts.add_signed_off_by,
+        filter_changes=opts.filter_changes,
+        upstream_history_limit=opts.upstream_history_limit,
+        skip_job_name=opts.skip_job_name,
+        skip_author_email=opts.skip_author_email,
+        upstream_history_starts_with=opts.upstream_history_starts_with,
+        downstream=downstream_config,
+        upstream_url=opts.upstream,
+    )
+
+    return copybot_config

@@ -528,16 +528,6 @@ def run_copybot(
         git_dir: A temporary or local directory to use for Git operations.
         patch_dir: A temporary directory to use for storing patch files.
     """
-    drop_paths = []
-    if (
-        gerrit.ExclusionBehavior[config.exclude_method]
-        == gerrit.ExclusionBehavior.DROP
-    ):
-        drop_paths = config.exclude_file_patterns
-    filter_file_patterns = [
-        re.compile(str(pattern)) for pattern in config.exclude_file_patterns
-    ]
-
     insert_into_msg = {}
     for msg in config.downstream.insert_into_msg:
         index, _, msg = msg.partition(":")
@@ -573,7 +563,7 @@ def run_copybot(
             branch=config.downstream.branch,
             hashtags=[config.topic],
             subtree=config.downstream.subtree,
-            exclude_paths=drop_paths,
+            exclude_paths=config.drop_paths,
         )
         logger.info(
             "Found %s pending and %s abandoned changes already on Gerrit",
@@ -631,7 +621,7 @@ def run_copybot(
         downstream_rev,
         config.upstream.subtree,
         config.downstream.subtree,
-        drop_paths,
+        config.drop_paths,
         related_repo,
         pending_changes=pending_changes,
         upstream_history_length=upstream_history_length,
@@ -692,8 +682,8 @@ def run_copybot(
         include_paths=config.downstream.include_paths,
         upstream_limit=config.upstream.history_limit,
         downstream_limit=config.downstream.history_limit,
-        exclude_file_patterns=drop_paths,
-        filter_file_patterns=filter_file_patterns,
+        exclude_file_patterns=config.drop_paths,
+        filter_file_patterns=config.filter_file_patterns,
         pending_changes=pending_changes,
         abandoned_changes=abandoned_changes,
         skip_copybot_job_names=config.skip_job_name,
@@ -803,7 +793,7 @@ def run_copybot(
                     upstream_subtree=config.upstream.subtree,
                     downstream_subtree=config.downstream.subtree,
                     include_paths=config.downstream.include_paths,
-                    exclude_paths=drop_paths,
+                    exclude_paths=config.drop_paths,
                 )
         except gerrit.EmptyCommitError:
             logger.warning("Skip cherry-pick due to empty commit")
@@ -842,7 +832,7 @@ def run_copybot(
                             upstream_subtree=config.upstream.subtree,
                             downstream_subtree=config.upstream.subtree,
                             include_paths=config.downstream.include_paths,
-                            exclude_paths=drop_paths,
+                            exclude_paths=config.drop_paths,
                             allow_conflict=True,
                         )
                     except gerrit.EmptyCommitError:

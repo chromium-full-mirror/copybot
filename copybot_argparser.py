@@ -11,6 +11,7 @@ import argparse
 import dataclasses
 import os
 import pathlib
+import re
 from typing import Any
 import urllib
 import urllib.parse
@@ -93,7 +94,8 @@ class CopybotConfig:
     topic: str
     json_out: pathlib.Path
     dry_run: bool
-    exclude_file_patterns: list[str | os.PathLike[str]]
+    filter_file_patterns: list[re.Pattern]
+    drop_paths: list[str | os.PathLike[str]]
     exclude_method: str
     merge_conflict_behavior: str
     add_signed_off_by: bool
@@ -276,6 +278,7 @@ def parse_copybot_config(argv: list[str] | None = None) -> CopybotConfig:
         "separated by colons",
     )
     opts = parser.parse_args(argv)
+
     (
         _,
         upstream_url,
@@ -288,6 +291,17 @@ def parse_copybot_config(argv: list[str] | None = None) -> CopybotConfig:
         downstream_branch,
         downstream_subtree,
     ) = parse_repo_info(opts.downstream)
+
+    drop_paths = []
+    if (
+        gerrit.ExclusionBehavior[opts.exclude_method]
+        == gerrit.ExclusionBehavior.DROP
+    ):
+        drop_paths = opts.exclude_file_patterns
+
+    filter_file_patterns = [
+        re.compile(str(pattern)) for pattern in opts.exclude_file_patterns
+    ]
 
     downstream_config = DownstreamConfig(
         labels=opts.labels,
@@ -319,7 +333,8 @@ def parse_copybot_config(argv: list[str] | None = None) -> CopybotConfig:
         topic=opts.topic,
         json_out=opts.json_out,
         dry_run=opts.dry_run,
-        exclude_file_patterns=opts.exclude_file_patterns,
+        filter_file_patterns=filter_file_patterns,
+        drop_paths=drop_paths,
         exclude_method=opts.exclude_method,
         merge_conflict_behavior=opts.merge_conflict_behavior,
         add_signed_off_by=opts.add_signed_off_by,

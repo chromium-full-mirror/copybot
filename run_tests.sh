@@ -21,3 +21,4 @@ cd "$(dirname "$(realpath -e "${BASH_SOURCE[0]}")")"
 # Check for formatting issues (also reports during pre-upload).
 cros lint .
 cros format --check .
+../../chromite/scripts/black --check .

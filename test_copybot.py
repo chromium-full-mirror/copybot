@@ -42,7 +42,10 @@ CQ-DEPEND: chromium:1234,chrome-internal:5678
             gerrit.MergeConflictsError(commits=["deadbeef", "deadd00d"]),
             {
                 "failure_reason": "FAILURE_MERGE_CONFLICTS",
-                "merge_conflicts": [{"hash": "deadbeef"}, {"hash": "deadd00d"}],
+                "merge_conflicts": [
+                    {"hash": "deadbeef"},
+                    {"hash": "deadd00d"},
+                ],
             },
         ),
     ],

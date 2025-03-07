@@ -86,7 +86,10 @@ class CopybotFatalError(Exception):
     enum_name = "FAILURE_UNKNOWN"
 
     def __init__(
-        self, *args: str, commits: Optional[Sequence[str]] = None, **kwargs: str
+        self,
+        *args: str,
+        commits: Optional[Sequence[str]] = None,
+        **kwargs: str,
     ):
         self.commits = commits
         super().__init__(*args, **kwargs)

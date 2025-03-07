@@ -45,8 +45,6 @@ import re
 import subprocess
 import tempfile
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
-import urllib
-import urllib.parse
 
 import copybot_argparser
 import gerrit
@@ -518,38 +516,6 @@ def is_server_gob(url: str) -> re.Match[str] | None:
     )
 
 
-def parse_repo_info(repo_string: str) -> Tuple[bool, str, str, str]:
-    is_local = True
-    max_fields = 3
-    repo_info: List[Any] = []
-
-    base_string = repo_string
-    url_result = urllib.parse.urlparse(repo_string)
-    if url_result.netloc and url_result.scheme:
-        is_local = False
-    for _ in range(max_fields + 1):
-        base_string, sep, current_field = base_string.rpartition(":")
-        if not sep:
-            if is_local:
-                repo_info.insert(0, pathlib.Path(current_field))
-            else:
-                repo_info[0] = url_result.scheme + ":" + repo_info[0]
-            break
-        else:
-            repo_info.insert(0, current_field)
-
-    for _ in range(len(repo_info), max_fields):
-        repo_info.append(None)
-
-    repo_url = repo_info[0]
-    repo_branch = repo_info[1]
-    repo_subtree = repo_info[2]
-    if not repo_branch:
-        repo_branch = "main"
-
-    return is_local, repo_url, repo_branch, repo_subtree
-
-
 def run_copybot(
     config: copybot_argparser.CopybotConfig,
     git_dir: Union[str, "os.PathLike[str]"],
@@ -571,31 +537,20 @@ def run_copybot(
     filter_file_patterns = [
         re.compile(str(pattern)) for pattern in config.exclude_file_patterns
     ]
-    (
-        _,
-        upstream_url,
-        upstream_branch,
-        upstream_subtree,
-    ) = parse_repo_info(config.upstream_url)
-    (
-        local_downstream,
-        downstream_url,
-        downstream_branch,
-        downstream_subtree,
-    ) = parse_repo_info(config.downstream.url)
 
     insert_into_msg = {}
     for msg in config.downstream.insert_into_msg:
         index, _, msg = msg.partition(":")
         insert_into_msg[int(index)] = msg
 
-    if local_downstream:
-        git_dir = downstream_url
+    if config.downstream.is_local:
+        git_dir = config.downstream.url
 
     keep_pseudoheaders = list(config.downstream.keep_pseudoheaders)
     related_repo = False
-    if upstream_url == downstream_url or (
-        is_server_gob(str(downstream_url)) and is_server_gob(str(upstream_url))
+    if config.upstream.url == config.downstream.url or (
+        is_server_gob(str(config.downstream.url))
+        and is_server_gob(str(config.upstream.url))
     ):
         related_repo = True
         if "Change-Id" not in keep_pseudoheaders:
@@ -606,7 +561,7 @@ def run_copybot(
     pending_changes: Dict[str, gerrit.GerritClInfo] = {}
     abandoned_changes: Dict[str, gerrit.GerritClInfo] = {}
     gerrit_inst: Optional[gerrit.Gerrit] = None
-    if (m := is_server_gob(str(downstream_url))) is not None:
+    if (m := is_server_gob(str(config.downstream.url))) is not None:
         downstream_gob_host = m.group(1)
         downstream_project = m.group(2)
 
@@ -615,9 +570,9 @@ def run_copybot(
         )
         pending_changes, abandoned_changes = gerrit_inst.find_pending_changes(
             project=downstream_project,
-            branch=downstream_branch,
+            branch=config.downstream.branch,
             hashtags=[config.topic],
-            subtree=downstream_subtree,
+            subtree=config.downstream.subtree,
             exclude_paths=drop_paths,
         )
         logger.info(
@@ -627,26 +582,30 @@ def run_copybot(
         )
     repo = gerrit.GitRepo.init(git_dir)
     try:
-        upstream_rev = repo.fetch(upstream_url, upstream_branch)
+        upstream_rev = repo.fetch(config.upstream.url, config.upstream.branch)
     except subprocess.CalledProcessError as e:
         raise gerrit.UpstreamFetchError(
-            f"Failed to fetch branch {upstream_branch} from {upstream_url}"
+            f"Failed to fetch branch {config.upstream.branch} from "
+            f"{config.upstream.url}"
         ) from e
 
     try:
-        downstream_rev = repo.fetch(downstream_url, downstream_branch)
+        downstream_rev = repo.fetch(
+            config.downstream.url, config.downstream.branch
+        )
     except subprocess.CalledProcessError as e:
         raise gerrit.DownstreamFetchError(
-            f"Failed to fetch branch {downstream_branch} from {downstream_url}"
+            f"Failed to fetch branch {config.downstream.branch} from "
+            f"{config.downstream.url}"
         ) from e
     upstream_history_length = 0
     downstream_history_length = 0
-    if config.upstream_history_starts_with:
+    if config.upstream.history_starts_with:
         upstream_history_length = (
             repo.get_cl_count(
-                config.upstream_history_starts_with,
+                config.upstream.history_starts_with,
                 upstream_rev,
-                upstream_subtree,
+                config.upstream.subtree,
             )
             + 1
         )
@@ -656,7 +615,7 @@ def run_copybot(
             repo.get_cl_count(
                 config.downstream.history_starts_with,
                 downstream_rev,
-                downstream_subtree,
+                config.downstream.subtree,
             )
             + 1
         )
@@ -670,8 +629,8 @@ def run_copybot(
         repo,
         upstream_rev,
         downstream_rev,
-        upstream_subtree,
-        downstream_subtree,
+        config.upstream.subtree,
+        config.downstream.subtree,
         drop_paths,
         related_repo,
         pending_changes=pending_changes,
@@ -700,17 +659,17 @@ def run_copybot(
     num_cls_to_downstream += len(pending_changes)
 
     if (
-        num_cls_to_downstream > config.upstream_history_limit
-        and config.upstream_history_limit != 0
+        num_cls_to_downstream > config.upstream.history_limit
+        and config.upstream.history_limit != 0
     ):
         logger.warning(
             "There are %s CLs between HEAD and %s but the history limit is"
             " set to %s. Raising the history limit to accommodate this.",
             num_cls_to_downstream,
             last_related_rev,
-            config.upstream_history_limit,
+            config.upstream.history_limit,
         )
-        config.upstream_history_limit = num_cls_to_downstream
+        config.upstream.history_limit = num_cls_to_downstream
         # The reference CL may have been cherry-picked out of order.
         # Remove the downstream limit to find it in the history correctly.
         config.downstream.history_limit = downstream_history_length
@@ -727,11 +686,11 @@ def run_copybot(
     ) = find_commits_to_copy(
         repo,
         upstream_rev,
-        upstream_subtree,
+        config.upstream.subtree,
         downstream_rev,
-        downstream_subtree,
+        config.downstream.subtree,
         include_paths=config.downstream.include_paths,
-        upstream_limit=config.upstream_history_limit,
+        upstream_limit=config.upstream.history_limit,
         downstream_limit=config.downstream.history_limit,
         exclude_file_patterns=drop_paths,
         filter_file_patterns=filter_file_patterns,
@@ -752,8 +711,8 @@ def run_copybot(
     skipped_revs = []
 
     if not config.filter_changes:
-        downstream_subtree = ""
-        upstream_subtree = ""
+        config.downstream.subtree = ""
+        config.upstream.subtree = ""
 
     if 0 < config.downstream.limit < len(commits_to_copy):
         logger.warning(
@@ -796,7 +755,7 @@ def run_copybot(
             return
         logger.info("Checking out the top change: %s.", pending_rev)
         repo.fetch(
-            downstream_url,
+            config.downstream.url,
             pending_changes[str(pending_rev)].current_ref,
         )
         repo.checkout("FETCH_HEAD")
@@ -833,14 +792,16 @@ def run_copybot(
             )
         try:
             if pending_change:
-                repo.fetch(downstream_url, pending_changes[rev].current_ref)
+                repo.fetch(
+                    config.downstream.url, pending_changes[rev].current_ref
+                )
                 repo.cherry_pick("FETCH_HEAD")
             else:
                 repo.cherry_pick(
                     filtered_rev or rev,
                     patch_dir=patch_dir,
-                    upstream_subtree=upstream_subtree,
-                    downstream_subtree=downstream_subtree,
+                    upstream_subtree=config.upstream.subtree,
+                    downstream_subtree=config.downstream.subtree,
                     include_paths=config.downstream.include_paths,
                     exclude_paths=drop_paths,
                 )
@@ -864,7 +825,9 @@ def run_copybot(
             ):
                 logger.warning("Committing %s with conflicts", rev)
                 if pending_change:
-                    repo.fetch(downstream_url, pending_changes[rev].current_ref)
+                    repo.fetch(
+                        config.downstream.url, pending_changes[rev].current_ref
+                    )
                     try:
                         repo.cherry_pick(rev="FETCH_HEAD", allow_conflict=True)
                     except gerrit.EmptyCommitError:
@@ -876,8 +839,8 @@ def run_copybot(
                         repo.cherry_pick(
                             filtered_rev or rev,
                             patch_dir=patch_dir,
-                            upstream_subtree=upstream_subtree,
-                            downstream_subtree=downstream_subtree,
+                            upstream_subtree=config.upstream.subtree,
+                            downstream_subtree=config.upstream.subtree,
                             include_paths=config.downstream.include_paths,
                             exclude_paths=drop_paths,
                             allow_conflict=True,
@@ -930,17 +893,19 @@ def run_copybot(
         logger.info("Nothing to push!")
     else:
         skip_cq = any(conflicted_revs) or pending_to_submit
-        push_refspec = get_push_refspec(config, downstream_branch, skip_cq)
-        if not config.dry_run and not local_downstream:
+        push_refspec = get_push_refspec(
+            config, config.downstream.branch, skip_cq
+        )
+        if not config.dry_run and not config.downstream.is_local:
             try:
                 repo.push(
-                    downstream_url,
+                    config.downstream.url,
                     push_refspec,
                     options=config.downstream.push_options,
                 )
             except subprocess.CalledProcessError as e:
                 raise gerrit.PushError(
-                    f"Failed to push to {downstream_url}"
+                    f"Failed to push to {config.downstream.url}"
                 ) from e
         else:
             logger.info("Skip push due to dry/local run")
@@ -1003,7 +968,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         level=logging.INFO,
     )
 
-    if 0 < config.downstream.history_limit < config.upstream_history_limit:
+    if 0 < config.downstream.history_limit < config.upstream.history_limit:
         logger.warning(
             "Using a lower downstream limit than upstream limit may cause"
             " previously downstreamed changes to be chosen again."

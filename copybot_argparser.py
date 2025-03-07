@@ -11,8 +11,45 @@ import argparse
 import dataclasses
 import os
 import pathlib
+from typing import Any
+import urllib
+import urllib.parse
 
 import gerrit
+
+
+def parse_repo_info(repo_string: str) -> tuple[bool, str, str, str]:
+    """Parse colon-separated repo info string with URL, branch and subtree."""
+
+    is_local = True
+    max_fields = 3
+    repo_info: list[Any] = []
+
+    base_string = repo_string
+    url_result = urllib.parse.urlparse(repo_string)
+    if url_result.netloc and url_result.scheme:
+        is_local = False
+    for _ in range(max_fields + 1):
+        base_string, sep, current_field = base_string.rpartition(":")
+        if not sep:
+            if is_local:
+                repo_info.insert(0, pathlib.Path(current_field))
+            else:
+                repo_info[0] = url_result.scheme + ":" + repo_info[0]
+            break
+        else:
+            repo_info.insert(0, current_field)
+
+    for _ in range(len(repo_info), max_fields):
+        repo_info.append(None)
+
+    repo_url = repo_info[0]
+    repo_branch = repo_info[1]
+    repo_subtree = repo_info[2]
+    if not repo_branch:
+        repo_branch = "main"
+
+    return is_local, repo_url, repo_branch, repo_subtree
 
 
 @dataclasses.dataclass
@@ -33,6 +70,20 @@ class DownstreamConfig:
     add_pseudoheaders: list[str]
     history_starts_with: str
     url: str
+    branch: str
+    subtree: str
+    is_local: bool
+
+
+@dataclasses.dataclass
+class UpstreamConfig:
+    """Dataclass for upstream repo target config."""
+
+    history_limit: int
+    history_starts_with: str
+    url: str
+    branch: str
+    subtree: str
 
 
 @dataclasses.dataclass
@@ -47,12 +98,10 @@ class CopybotConfig:
     merge_conflict_behavior: str
     add_signed_off_by: bool
     filter_changes: bool
-    upstream_history_limit: int
     skip_job_name: list[str]
     skip_author_email: list[str]
-    upstream_history_starts_with: str
     downstream: DownstreamConfig
-    upstream_url: str
+    upstream: UpstreamConfig
 
 
 def parse_copybot_config(argv: list[str] | None = None) -> CopybotConfig:
@@ -227,6 +276,18 @@ def parse_copybot_config(argv: list[str] | None = None) -> CopybotConfig:
         "separated by colons",
     )
     opts = parser.parse_args(argv)
+    (
+        _,
+        upstream_url,
+        upstream_branch,
+        upstream_subtree,
+    ) = parse_repo_info(opts.upstream)
+    (
+        downstream_is_local,
+        downstream_url,
+        downstream_branch,
+        downstream_subtree,
+    ) = parse_repo_info(opts.downstream)
 
     downstream_config = DownstreamConfig(
         labels=opts.labels,
@@ -242,7 +303,17 @@ def parse_copybot_config(argv: list[str] | None = None) -> CopybotConfig:
         include_paths=opts.include_downstream,
         add_pseudoheaders=opts.add_pseudoheaders,
         history_starts_with=opts.downstream_history_starts_with,
-        url=opts.downstream,
+        url=downstream_url,
+        branch=downstream_branch,
+        subtree=downstream_subtree,
+        is_local=downstream_is_local,
+    )
+    upstream_config = UpstreamConfig(
+        url=upstream_url,
+        branch=upstream_branch,
+        subtree=upstream_subtree,
+        history_limit=opts.upstream_history_limit,
+        history_starts_with=opts.upstream_history_starts_with,
     )
     copybot_config = CopybotConfig(
         topic=opts.topic,
@@ -253,12 +324,10 @@ def parse_copybot_config(argv: list[str] | None = None) -> CopybotConfig:
         merge_conflict_behavior=opts.merge_conflict_behavior,
         add_signed_off_by=opts.add_signed_off_by,
         filter_changes=opts.filter_changes,
-        upstream_history_limit=opts.upstream_history_limit,
         skip_job_name=opts.skip_job_name,
         skip_author_email=opts.skip_author_email,
-        upstream_history_starts_with=opts.upstream_history_starts_with,
         downstream=downstream_config,
-        upstream_url=opts.upstream,
+        upstream=upstream_config,
     )
 
     return copybot_config

@@ -14,6 +14,10 @@ Usage: copybot.py [options...] upstream_repo:branch downstream_repo:branch
 # [VPYTHON:BEGIN]
 # python_version: "3.11"
 # wheel: <
+#   name: "infra/python/wheels/configargparse-py3"
+#   version: "version:1.7"
+# >
+# wheel: <
 #   name: "infra/python/wheels/requests-py3"
 #   version: "version:2.31.0"
 # >

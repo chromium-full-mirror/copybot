@@ -7,7 +7,6 @@
 Used for generating a common config to use across different downstream projects.
 """
 
-import argparse
 import dataclasses
 import os
 import pathlib
@@ -16,6 +15,7 @@ from typing import Any
 import urllib
 import urllib.parse
 
+import configargparse  # type: ignore[import] # pylint: disable=import-error
 import gerrit
 
 
@@ -116,7 +116,17 @@ class CopybotConfig:
 
 def parse_copybot_config(argv: list[str] | None = None) -> CopybotConfig:
     """The entry point to the program."""
-    parser = argparse.ArgumentParser(description="CopyBot")
+    parser = configargparse.ArgumentParser(
+        description="CopyBot",
+        default_config_files=["config/copybot.conf"],
+    )
+    parser.add(
+        "-c",
+        "--config",
+        required=False,
+        is_config_file=True,
+        help="config file path",
+    )
     parser.add_argument(
         "--topic",
         help="Topic to set and search in Gerrit",

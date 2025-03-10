@@ -12,7 +12,7 @@ Usage: copybot.py [options...] upstream_repo:branch downstream_repo:branch
 """
 
 # [VPYTHON:BEGIN]
-# python_version: "3.8"
+# python_version: "3.11"
 # wheel: <
 #   name: "infra/python/wheels/requests-py3"
 #   version: "version:2.31.0"

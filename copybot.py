@@ -1137,6 +1137,9 @@ def main(argv: list[str] | None = None) -> None:
         tempfile.TemporaryDirectory("_patches") as patch_dir,
     ):
         config = copybot_argparser.parse_copybot_config(git_root_dir, argv)
+        if config.generate_config:
+            copybot_argparser.generate_config(argv)
+            return
 
         err = None
         try:

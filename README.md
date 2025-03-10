@@ -65,17 +65,15 @@ encapsulating the parsing, checking, and application of command line arguments.
 ## Using CopyBot
 
 CopyBot is intended to be run daily as a cron job.  The Chromium OS
-deployment of CopyBot runs nightly at ~4:30 AM Mountain Time, but is configurable
-on a per project basis in `copybot.star`
-
-By default, copybot will set BotCommit+1, Verified+1, and CQ+2.  To stop this
-behavior, define the labels for your jobs configuration in copybot.star.  See
-this example for [coreboot toolchain].
+deployment of CopyBot is scheduled to run at 6 hour intervals starting at
+~4:30 AM Mountain Time, but is configurable on a per project basis in `copybot.star`
 
 Your job as a downstreamer is to:
 
 - CR+2 and CQ+2 the commits uploaded by CopyBot.
    * This step may be skipped if copybot is configured to auto-+2 for your repo.
+   * Set auto +2 by adding `Verified+1, Bot-Commit+1, Commit-Queue+2` to the label
+      field in your .ini file
 
 - Watch for CQ failures.
 
@@ -164,9 +162,14 @@ You can trigger CopyBot jobs from the [LUCI Scheduler UI].
 
 ### Adding a CopyBot Configuration
 
-CopyBot jobs run and managed by LUCI.  To add or modify a job configuration,
+CopyBot jobs are run and managed by LUCI.  To add or modify a job configuration,
 modify the corresponding configuration object in
-[`infra/config/misc_builders/copybot.star`].
+[`infra/config/misc_builders/copybot.star`].  This configuration is paired
+with the .ini configuration file found in infra/copybot/config and the name
+used as the config file name must match the builder name.
+
+Generate and/or update the .ini file by running copybot locally with the
+--generate-config command line option.  See the help for more info.
 
 ### CopyBot support for repositories
 
@@ -282,7 +285,6 @@ To ask questions or get help, please reachout to [copybot-maintainers@google.com
 How to run it manually video: [copybot - manual run demo][copybot_video]
 (available only to Googlers for the moment).
 
-[coreboot toolchain]: https://source.corp.google.com/h/chrome-internal/chromeos/superproject/+/main:infra/config/misc_builders/copybot.star;l=150
 [Copybara]: https://github.com/google/copybara
 [CopyBot Status Dashboard]: https://dashboards.corp.google.com/_e1e96010_77ed_4e80_8437_f8fb0bb0f77b
 [copybot-maintainers@google.com]: mailto:copybot-maintainers@google.com

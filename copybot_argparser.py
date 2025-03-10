@@ -12,7 +12,7 @@ import logging
 import os
 import pathlib
 import re
-from typing import Any, Union
+from typing import Any, List, Optional, Union
 import urllib
 import urllib.parse
 
@@ -23,11 +23,15 @@ import gerrit
 logger = logging.getLogger(__name__)
 
 
+class ConfigError(Exception):
+    """The configuration for this copybot job is invalid."""
+
+
 def parse_insert_into_msg(insert_into_msg: list[str]) -> dict[int, str]:
     result = {}
     for msg in insert_into_msg:
         index, _, msg = msg.partition(":")
-        result[int(index)] = msg
+        result[int(index)] = f"{msg}\n"
     return result
 
 
@@ -137,12 +141,48 @@ class CopybotConfig:
     skip_author_emails: list[str]
     downstreams: list[DownstreamConfig]
     upstream: UpstreamConfig
+    generate_config: bool
 
 
-def parse_copybot_config(
-    git_root_dir: Union[str, "os.PathLike[str]"], argv: list[str] | None = None
-) -> CopybotConfig:
+def generate_config(argv: Optional[List[str]] = None) -> None:
+    """Generates a config file from the defined command line options."""
+    dest_to_option = {}
+    dest_to_default = {}
+    parser = create_arg_parser()
+    opts = parser.parse_args(argv)
+    # Iterate over the support arguments and generate maps for accessing
+    # both the default options and the storage name/command-line name of
+    # the options.
+    # pylint: disable=protected-access
+    for action in parser._actions:
+        # Only act on parser objects that are command line arguments
+        if action.option_strings:
+            # Map the argument dest name to the option name
+            dest_to_option[action.dest] = action.option_strings[-1].lstrip("-")
+            # Map the argument dest name to the option default value
+            dest_to_default[action.dest] = action.default
+    # Write the config file
+    os.makedirs(os.path.dirname(opts.generate_config), exist_ok=True)
+    with open(opts.generate_config, "w", encoding="utf-8") as outfile:
+        outfile.write("[copybot]\n")
+        for name, value in vars(opts).items():
+            if (
+                name == "generate_config"
+                or name == "config"
+                or not value
+                or value == dest_to_default[name]
+            ):
+                continue
+            if isinstance(value, list):
+                value = "[%s]" % ", ".join(value)
+            elif isinstance(value, str):
+                value = f'"{value}"'
+            outfile.write(f"{dest_to_option[name]} = {value}\n")
+
+
+def create_arg_parser() -> configargparse.ArgumentParser:
     """The entry point to the program."""
+
     parser = configargparse.ArgumentParser(
         description="CopyBot",
         default_config_files=["config/copybot.conf"],
@@ -319,6 +359,12 @@ def parse_copybot_config(
         default="",
     )
     parser.add_argument(
+        "--generate-config",
+        help="Generate config file from input arguments/files. Output will be"
+        " stored in the --config path and then the program will exit.",
+        default="",
+    )
+    parser.add_argument(
         "--upstream-url",
         help="Upstream Git URL, optionally with a branch and subtree separated"
         " by colons",
@@ -334,6 +380,14 @@ def parse_copybot_config(
         required=True,
         dest="downstream",
     )
+    return parser
+
+
+def parse_copybot_config(
+    git_root_dir: Union[str, "os.PathLike[str]"], argv: list[str] | None = None
+) -> CopybotConfig:
+    """Processes command line args and generates a config object."""
+    parser = create_arg_parser()
     opts = parser.parse_args(argv)
     (
         _,
@@ -434,6 +488,7 @@ def parse_copybot_config(
         skip_author_emails=opts.skip_author_email,
         downstreams=downstream_configs,
         upstream=upstream_config,
+        generate_config=opts.generate_config,
     )
 
     for downstream_config in downstream_configs:

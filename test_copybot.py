@@ -85,6 +85,7 @@ def cons_default_copybot_config() -> copybot_argparser.CopybotConfig:
         skip_author_emails=[],
         downstreams=[downstream_config],
         upstream=upstream_config,
+        generate_config=False,
     )
     return copybot_config
 
@@ -414,3 +415,164 @@ def test_push_changes_to_downstream(repo_push, copybot_config) -> None:
         push_refspec,
         options=copybot_config.downstreams[0].push_options,
     )
+
+
+class TestGenerateConfig:
+    """Tests for generate_config function."""
+
+    CONFIG_FILE_PATH = "./config/coreboot-main-copybot-downstream.ini"
+
+    def setup_method(self):
+        """Set up for test cases, create a temporary directory"""
+        # pylint: disable=attribute-defined-outside-init
+        self.temp_dir = tempfile.mkdtemp()
+        self.config_file = os.path.join(self.temp_dir, "test_config.cfg")
+
+    def teardown_method(self):
+        """Tear down after test cases, remove the temporary directory"""
+        if self.temp_dir:
+            for file_name in os.listdir(self.temp_dir):
+                os.remove(os.path.join(self.temp_dir, file_name))
+            os.rmdir(self.temp_dir)
+
+    def test_config_string_argument(self) -> None:
+        """Test with an invalid string argument."""
+        with pytest.raises(SystemExit):
+            copybot_argparser.generate_config(
+                [
+                    "--generate-config",
+                    self.config_file,
+                    "--some-string",
+                    "another_string",
+                ]
+            )
+            assert not os.path.exists(self.config_file)
+
+    def test_config_argument(self) -> None:
+        """Test that config argument is not written."""
+
+        with open(self.CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
+            expected_content = f.read()
+
+        copybot_argparser.generate_config(
+            [
+                "--generate-config",
+                self.config_file,
+                "--config",
+                self.CONFIG_FILE_PATH,
+            ]
+        )
+        with open(self.config_file, "r", encoding="utf-8") as f:
+            generated_content = f.read()
+
+        assert generated_content == expected_content
+
+    def test_config_command_line_args(self) -> None:
+        """Test that the generated config file path is correct."""
+        copybot_argparser.generate_config(
+            [
+                "--generate-config",
+                self.config_file,
+                "--label",
+                "copybot-downstream",
+                "--upstream-url",
+                "upstream",
+                "--downstream-url",
+                "downstream",
+            ]
+        )
+        assert os.path.exists(self.config_file)
+        with open(self.config_file, "r", encoding="utf-8") as f:
+            content = f.read()
+        assert content == (
+            "[copybot]\nlabel = [copybot-downstream]\n"
+            'upstream-url = "upstream"\ndownstream-url = "downstream"\n'
+        )
+
+    def test_config_default_not_written(self) -> None:
+        """Test that the generated config file does not contain defaults."""
+        copybot_argparser.generate_config(
+            [
+                "--generate-config",
+                self.config_file,
+                "--label",
+                "copybot-downstream",
+                "--limit",
+                "200",
+                "--upstream-url",
+                "upstream",
+                "--downstream-url",
+                "downstream",
+            ]
+        )
+        assert os.path.exists(self.config_file)
+        with open(self.config_file, "r", encoding="utf-8") as f:
+            content = f.read()
+        assert content == (
+            "[copybot]\nlabel = [copybot-downstream]\n"
+            'upstream-url = "upstream"\ndownstream-url = "downstream"\n'
+        )
+
+    def test_config_file_path(self) -> None:
+        """Test that the generated config file path is correct."""
+        copybot_argparser.generate_config(
+            [
+                "--generate-config",
+                self.config_file,
+                "--upstream-url",
+                "upstream",
+                "--downstream-url",
+                "downstream",
+            ]
+        )
+        assert os.path.exists(self.config_file)
+        with open(self.config_file, "r", encoding="utf-8") as f:
+            content = f.read()
+        assert content == (
+            '[copybot]\nupstream-url = "upstream"\n'
+            'downstream-url = "downstream"\n'
+        )
+
+    def test_config_existing_directory(self) -> None:
+        """Test that it works correctly when the directory already exists."""
+        os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
+        copybot_argparser.generate_config(
+            [
+                "--generate-config",
+                self.config_file,
+                "--upstream-url",
+                "upstream",
+                "--downstream-url",
+                "downstream",
+            ]
+        )
+        with open(self.config_file, "r", encoding="utf-8") as f:
+            content = f.read()
+        assert content == (
+            '[copybot]\nupstream-url = "upstream"\n'
+            'downstream-url = "downstream"\n'
+        )
+
+    def test_config_without_upstream_url(self) -> None:
+        """Test that generate config fails without upstream url."""
+        with pytest.raises(SystemExit):
+            copybot_argparser.generate_config(
+                [
+                    "--generate-config",
+                    self.config_file,
+                    "--downstream-url",
+                    "downstream",
+                ]
+            )
+
+    def test_config_without_downstream_url(self) -> None:
+        """Test that generate config fails without downstream url."""
+        with pytest.raises(SystemExit):
+            copybot_argparser.generate_config(
+                [
+                    "--generate-config",
+                    self.config_file,
+                    "--upstream-url",
+                    "upstream",
+                ]
+            )

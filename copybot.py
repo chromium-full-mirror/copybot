@@ -58,8 +58,8 @@ logger = logging.getLogger(__name__)
 
 
 def are_repos_related(
-    upstream: copybot_argparser.UpstreamConfig,
-    downstream: copybot_argparser.DownstreamConfig,
+    upstream: copybot_argparser.TargetConfig,
+    downstream: copybot_argparser.TargetConfig,
 ) -> bool:
     """Checks if repos are either same or on Git-on-Borg instances."""
     return bool(
@@ -498,6 +498,34 @@ def is_server_gob(url: str) -> re.Match[str] | None:
     )
 
 
+def fetch_repo_head_sha(repo: gerrit.GitRepo, url: str, branch: str) -> str:
+    """Fetch HEAD sha of the given repository and branch."""
+    try:
+        return repo.fetch(url, branch)
+    except subprocess.CalledProcessError as e:
+        raise gerrit.FetchError(
+            f"Failed to fetch branch {branch} from {url}"
+        ) from e
+
+
+def fetch_history_length(
+    repo: gerrit.GitRepo, target: copybot_argparser.TargetConfig, location: str
+) -> int:
+    """Fetch the history length from where it starts to HEAD."""
+    if target.history_starts_with:
+        history_length = (
+            repo.get_cl_count(
+                target.history_starts_with,
+                target.head_sha,
+                target.subtree,
+            )
+            + 1
+        )
+        logger.info("%s history length: %d", location, history_length)
+        return history_length
+    return 0
+
+
 def run_copybot(
     config: copybot_argparser.CopybotConfig,
     git_dir: Union[str, "os.PathLike[str]"],
@@ -536,50 +564,18 @@ def run_copybot(
             len(abandoned_changes),
         )
     repo = gerrit.GitRepo.init(git_dir)
-    try:
-        config.upstream.head_sha = repo.fetch(
-            config.upstream.url, config.upstream.branch
-        )
-    except subprocess.CalledProcessError as e:
-        raise gerrit.UpstreamFetchError(
-            f"Failed to fetch branch {config.upstream.branch} from "
-            f"{config.upstream.url}"
-        ) from e
-
-    try:
-        config.downstream.head_sha = repo.fetch(
-            config.downstream.url, config.downstream.branch
-        )
-    except subprocess.CalledProcessError as e:
-        raise gerrit.DownstreamFetchError(
-            f"Failed to fetch branch {config.downstream.branch} from "
-            f"{config.downstream.url}"
-        ) from e
-
-    if config.upstream.history_starts_with:
-        config.upstream.history_length = (
-            repo.get_cl_count(
-                config.upstream.history_starts_with,
-                config.upstream.head_sha,
-                config.upstream.subtree,
-            )
-            + 1
-        )
-        logger.info(
-            "Upstream history length: %d", config.upstream.history_length
-        )
-    if config.downstream.history_starts_with:
-        config.downstream.history_length = (
-            repo.get_cl_count(
-                config.downstream.history_starts_with,
-                config.downstream.head_sha,
-                config.downstream.subtree,
-            )
-            + 1
-        )
-        logger.info(
-            "Downstream history length: %d", config.downstream.history_length
-        )
+    config.upstream.head_sha = fetch_repo_head_sha(
+        repo, config.upstream.url, config.upstream.branch
+    )
+    config.downstream.head_sha = fetch_repo_head_sha(
+        repo, config.downstream.url, config.downstream.branch
+    )
+    config.upstream.history_length = fetch_history_length(
+        repo, config.upstream, "Upstream"
+    )
+    config.downstream.history_length = fetch_history_length(
+        repo, config.upstream, "Downstream"
+    )
 
     # Verify that the two repositories share a history
     num_cls_to_downstream = 0

@@ -95,6 +95,12 @@ class CopybotFatalError(Exception):
         super().__init__(*args, **kwargs)
 
 
+class FetchError(CopybotFatalError):
+    """Copybot died as it has failed to fetch."""
+
+    enum_name = "FAILURE_FETCH_ERROR"
+
+
 class UpstreamFetchError(CopybotFatalError):
     """Copybot died as the upstream failed to fetch."""
 
@@ -566,7 +572,7 @@ class GitRepo:
     def get_cl_count(
         self,
         original_rev: str,
-        current_rev: str,
+        current_rev: str | None,
         subtree: Union[str, "os.PathLike[str]"] = "",
     ) -> int:
         """Get the number of CLs between the specified revisions."""

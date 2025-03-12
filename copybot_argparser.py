@@ -62,7 +62,24 @@ def parse_repo_info(repo_string: str) -> tuple[bool, str, str, str]:
 
 
 @dataclasses.dataclass
-class DownstreamConfig:
+class TargetConfig:
+    """Dataclass for common target configs."""
+
+    # The maximum number of CLs in the upstream history to check.
+    history_limit: int
+    history_starts_with: str
+    url: str
+    branch: str
+    subtree: str
+    # The commit hash of the upstream HEAD.
+    head_sha: str | None
+    # Number of CLs to consider as a part of the upstream history.
+    # 0 means unlimited
+    history_length: int
+
+
+@dataclasses.dataclass
+class DownstreamConfig(TargetConfig):
     """Dataclass for downstream repo target config."""
 
     labels: list[str]
@@ -77,37 +94,14 @@ class DownstreamConfig:
     keep_pseudoheaders: list[str]
     limit: int
     # The maximum number of CLs in the downstream history to check.
-    history_limit: int
-    # The paths to include from the upstream relative to the downstream subtree
     include_paths: list[str | os.PathLike[str]]
     add_pseudoheaders: list[str]
-    history_starts_with: str
-    url: str
-    branch: str
-    subtree: str
     is_local: bool
-    # The commit hash of the downstream HEAD.
-    head_sha: str | None = None
-    # Number of CLs to consider as a part of the downstream history.
-    # 0 means unlimited
-    history_length: int = 0
 
 
 @dataclasses.dataclass
-class UpstreamConfig:
+class UpstreamConfig(TargetConfig):
     """Dataclass for upstream repo target config."""
-
-    # The maximum number of CLs in the upstream history to check.
-    history_limit: int
-    history_starts_with: str
-    url: str
-    branch: str
-    subtree: str
-    # The commit hash of the upstream HEAD.
-    head_sha: str | None = None
-    # Number of CLs to consider as a part of the upstream history.
-    # 0 means unlimited
-    history_length: int = 0
 
 
 @dataclasses.dataclass
@@ -359,6 +353,8 @@ def parse_copybot_config(argv: list[str] | None = None) -> CopybotConfig:
         branch=downstream_branch,
         subtree=downstream_subtree,
         is_local=downstream_is_local,
+        head_sha=None,
+        history_length=0,
     )
     upstream_config = UpstreamConfig(
         url=upstream_url,
@@ -366,6 +362,8 @@ def parse_copybot_config(argv: list[str] | None = None) -> CopybotConfig:
         subtree=upstream_subtree,
         history_limit=opts.upstream_history_limit,
         history_starts_with=opts.upstream_history_starts_with,
+        head_sha=None,
+        history_length=0,
     )
     copybot_config = CopybotConfig(
         topic=opts.topic,

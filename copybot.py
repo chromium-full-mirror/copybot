@@ -57,12 +57,25 @@ import gerrit
 logger = logging.getLogger(__name__)
 
 
+def are_repos_related(
+    upstream: copybot_argparser.UpstreamConfig,
+    downstream: copybot_argparser.DownstreamConfig,
+) -> bool:
+    """Checks if repos are either same or on Git-on-Borg instances."""
+    return bool(
+        upstream.url == downstream.url
+        or (
+            is_server_gob(str(downstream.url))
+            and is_server_gob(str(upstream.url))
+        )
+    )
+
+
 def find_last_merged_rev(
     repo: gerrit.GitRepo,
     upstream: copybot_argparser.UpstreamConfig,
     downstream: copybot_argparser.DownstreamConfig,
     exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
-    include_change_id: bool = False,
     pending_changes: Optional[Dict[str, gerrit.GerritClInfo]] = None,
 ) -> Tuple[str, int]:
     """Find the last merged revision in a Git repo.
@@ -72,8 +85,6 @@ def find_last_merged_rev(
         upstream: Configuration for upstream location.
         downstream: Configuration for downstream location.
         exclude_file_patterns: List of paths to be excluded.
-        include_change_id: Bool specifying whether or not to
-            consider Change-Ids
         pending_changes: Changes pending in downstream repo.
 
     Returns:
@@ -99,6 +110,7 @@ def find_last_merged_rev(
     )
 
     upstream_change_ids = {}
+    include_change_id = are_repos_related(upstream, downstream)
     if include_change_id:
         for rev in upstream_hashes:
             change_id = gerrit.get_change_id(repo.get_commit_message(rev))
@@ -371,6 +383,7 @@ def find_commits_to_copy(
 def rewrite_commit_message(
     repo: gerrit.GitRepo,
     upstream_rev: str,
+    upstream: copybot_argparser.UpstreamConfig,
     downstream: copybot_argparser.DownstreamConfig,
     change_id: str,
     skipped_files=(),
@@ -382,6 +395,7 @@ def rewrite_commit_message(
     Args:
         repo: The GitRepo to operate on.
         upstream_rev: The upstream commit hash corresponding to this commit.
+        upstream: Configuration for upstream location.
         downstream: Configuration for downstream location.
         change_id: The Change-Id to add to the commit.
         skipped_files: The list of files skipped.
@@ -400,6 +414,11 @@ def rewrite_commit_message(
         ):
             tmp_commit_msg.insert(line, msg)
         commit_message = "\n".join(tmp_commit_msg)
+
+    if are_repos_related(upstream, downstream):
+        if "Change-Id" not in downstream.keep_pseudoheaders:
+            downstream.keep_pseudoheaders.append("Change-Id")
+
     pseudoheaders, commit_message = gerrit.Pseudoheaders.from_commit_message(
         commit_message
     )
@@ -479,16 +498,6 @@ def is_server_gob(url: str) -> re.Match[str] | None:
     )
 
 
-def is_related_repo(config: copybot_argparser.CopybotConfig) -> bool:
-    return bool(
-        config.upstream.url == config.downstream.url
-        or (
-            is_server_gob(str(config.downstream.url))
-            and is_server_gob(str(config.upstream.url))
-        )
-    )
-
-
 def run_copybot(
     config: copybot_argparser.CopybotConfig,
     git_dir: Union[str, "os.PathLike[str]"],
@@ -503,13 +512,6 @@ def run_copybot(
     """
     if config.downstream.is_local:
         git_dir = config.downstream.url
-
-    related_repo = False
-
-    if is_related_repo(config):
-        related_repo = True
-        if "Change-Id" not in config.downstream.keep_pseudoheaders:
-            config.downstream.keep_pseudoheaders.append("Change-Id")
 
     pending_changes: Dict[str, gerrit.GerritClInfo] = {}
     abandoned_changes: Dict[str, gerrit.GerritClInfo] = {}
@@ -588,7 +590,6 @@ def run_copybot(
         config.upstream,
         config.downstream,
         config.drop_paths,
-        related_repo,
         pending_changes=pending_changes,
     )
     if last_related_rev in pending_changes:
@@ -807,6 +808,7 @@ def run_copybot(
                     rewrite_commit_message(
                         repo,
                         upstream_rev=rev,
+                        upstream=config.upstream,
                         downstream=config.downstream,
                         change_id=change_id or gerrit.generate_change_id(),
                         skipped_files=skipped_files_map[rev],
@@ -826,6 +828,7 @@ def run_copybot(
             rewrite_commit_message(
                 repo,
                 upstream_rev=rev,
+                upstream=config.upstream,
                 downstream=config.downstream,
                 change_id=change_id or gerrit.generate_change_id(),
                 skipped_files=skipped_files_map[rev],

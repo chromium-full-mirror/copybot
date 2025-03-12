@@ -70,11 +70,15 @@ class DownstreamConfig:
     ccs: list[str]
     push_options: list[str]
     hashtags: list[str]
+    # A string to prepend the subject line with.
     prepend_subject: str
+    # A Dict(line, message) of messages to add to the commit msg.
     insert_into_msg: dict[int, str]
     keep_pseudoheaders: list[str]
     limit: int
+    # The maximum number of CLs in the downstream history to check.
     history_limit: int
+    # The paths to include from the upstream relative to the downstream subtree
     include_paths: list[str | os.PathLike[str]]
     add_pseudoheaders: list[str]
     history_starts_with: str
@@ -82,17 +86,28 @@ class DownstreamConfig:
     branch: str
     subtree: str
     is_local: bool
+    # The commit hash of the downstream HEAD.
+    head_sha: str | None = None
+    # Number of CLs to consider as a part of the downstream history.
+    # 0 means unlimited
+    history_length: int = 0
 
 
 @dataclasses.dataclass
 class UpstreamConfig:
     """Dataclass for upstream repo target config."""
 
+    # The maximum number of CLs in the upstream history to check.
     history_limit: int
     history_starts_with: str
     url: str
     branch: str
     subtree: str
+    # The commit hash of the upstream HEAD.
+    head_sha: str | None = None
+    # Number of CLs to consider as a part of the upstream history.
+    # 0 means unlimited
+    history_length: int = 0
 
 
 @dataclasses.dataclass

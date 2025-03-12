@@ -59,31 +59,21 @@ logger = logging.getLogger(__name__)
 
 def find_last_merged_rev(
     repo: gerrit.GitRepo,
-    upstream_rev: str,
-    downstream_rev: str,
-    upstream_subtree: str = "",
-    downstream_subtree: str = "",
+    upstream: copybot_argparser.UpstreamConfig,
+    downstream: copybot_argparser.DownstreamConfig,
     exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
     include_change_id: bool = False,
-    upstream_history_length: int = 0,
-    downstream_history_length: int = 0,
     pending_changes: Optional[Dict[str, gerrit.GerritClInfo]] = None,
 ) -> Tuple[str, int]:
     """Find the last merged revision in a Git repo.
 
     Args:
         repo: The GitRepo.
-        upstream_rev: The commit hash of the upstream HEAD.
-        downstream_rev: The commit hash of the downstream HEAD.
-        upstream_subtree: The subtree of interest of the upstream repo.
-        downstream_subtree: The subtree of interest of the downstream repo.
+        upstream: Configuration for upstream location.
+        downstream: Configuration for downstream location.
         exclude_file_patterns: List of paths to be excluded.
         include_change_id: Bool specifying whether or not to
             consider Change-Ids
-        upstream_history_length: Number of CLs to consider as a part of the
-            upstream history.
-        downstream_history_length: Number of CLs to consider as a part of the
-            downstream history.
         pending_changes: Changes pending in downstream repo.
 
     Returns:
@@ -96,16 +86,16 @@ def find_last_merged_rev(
         ValueError: No common history could be found.
     """
     upstream_hashes = repo.log_hashes(
-        revision_range=upstream_rev,
-        subtree=upstream_subtree,
+        revision_range=upstream.head_sha,
+        subtree=upstream.subtree,
         exclude_file_patterns=exclude_file_patterns,
-        num=upstream_history_length,
+        num=upstream.history_length,
     )
     downstream_hashes = repo.log_hashes(
-        revision_range=downstream_rev,
-        subtree=downstream_subtree,
+        revision_range=downstream.head_sha,
+        subtree=downstream.subtree,
         exclude_file_patterns=exclude_file_patterns,
-        num=downstream_history_length,
+        num=downstream.history_length,
     )
 
     upstream_change_ids = {}
@@ -146,39 +136,32 @@ def find_last_merged_rev(
 
 def get_downstreamed_list(
     repo: gerrit.GitRepo,
-    downstream_rev: str,
-    downstream_subtree: str = "",
+    downstream: copybot_argparser.DownstreamConfig,
     exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
-    limit: int = 0,
     upstream_change_ids: Optional[Dict[str, str]] = None,
-    downstream_history_length: int = 0,
 ) -> List[str]:
     """Find the last merged revision in a Git repo.
 
     Args:
         repo: The GitRepo.
-        downstream_rev: The commit hash of the downstream HEAD.
-        downstream_subtree: The subtree of interest of the downstream repo.
+        downstream: Configuration for downstream location.
         exclude_file_patterns: List of paths to be excluded.
-        limit: The maximum number of CLs in the history to check.
         upstream_change_ids: Dictionary of upstream Change-Id's and their
             associated upstream commit hash.
-        downstream_history_length: Number of CLs to consider as a part of the
-            downstream history.
 
     Returns:
         The set of upstream commit hashes that have already been downstreamed.
     """
     downstream_hashes = repo.log_hashes(
-        revision_range=downstream_rev,
-        subtree=downstream_subtree,
+        revision_range=downstream.head_sha,
+        subtree=downstream.subtree,
         exclude_file_patterns=exclude_file_patterns,
-        num=downstream_history_length,
+        num=downstream.history_length,
     )
     downstreamed_revs = list(downstream_hashes)
 
     for counter, rev in enumerate(downstream_hashes):
-        if counter > limit and limit != 0:
+        if counter > downstream.history_limit > 0:
             break
 
         commit_message = repo.get_commit_message(rev)
@@ -198,13 +181,8 @@ def get_downstreamed_list(
 
 def find_commits_to_copy(
     repo: gerrit.GitRepo,
-    upstream_rev: str,
-    upstream_subtree: str,
-    downstream_rev: str,
-    downstream_subtree: str,
-    include_paths: List[Union[str, "os.PathLike[str]"]],
-    upstream_limit: int = 0,
-    downstream_limit: int = 0,
+    upstream: copybot_argparser.UpstreamConfig,
+    downstream: copybot_argparser.DownstreamConfig,
     exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
     filter_file_patterns: Optional[List[re.Pattern[Any]]] = None,
     pending_changes: Optional[Dict[str, gerrit.GerritClInfo]] = None,
@@ -212,8 +190,6 @@ def find_commits_to_copy(
     skip_copybot_job_names: Iterable[str] = (),
     skip_author_emails: Iterable[str] = (),
     include_change_id: bool = False,
-    upstream_history_length: int = 0,
-    downstream_history_length: int = 0,
 ) -> Tuple[
     List[str], Dict[str, List[str]], Dict[str, List[str]], List[str], bool
 ]:
@@ -221,16 +197,8 @@ def find_commits_to_copy(
 
     Args:
         repo: The GitRepo.
-        upstream_rev: The commit hash of the upstream HEAD.
-        upstream_subtree: The subtree of interest of the upstream repo.
-        downstream_rev: The commit hash of the downstream HEAD.
-        downstream_subtree: The subtree of interest of the downstream repo.
-        include_paths: The paths to include from the upstream relative to
-            the downstream subtree(Only valid with downstream subtree)
-        upstream_limit: The maximum number of CLs in the upstream history to
-            check.
-        downstream_limit: The maximum number of CLs in the downstream history
-            to check.
+        upstream: Configuration for upstream location.
+        downstream: Configuration for downstream location.
         exclude_file_patterns: File paths that should not be copied.
             CLs will be dropped containing these paths.
         filter_file_patterns: File paths that should be filtered out.
@@ -241,10 +209,6 @@ def find_commits_to_copy(
         skip_author_emails: Emails of authors to not copy CLs from
         include_change_id: Bool specifying whether or not to
             consider Change-Ids
-        upstream_history_length: Number of CLs to consider as a part of the
-            upstream history.
-        downstream_history_length: Number of CLs to consider as a part of the
-            downstream history.
 
     Returns:
         * A list of the commit hashes to copy.
@@ -267,34 +231,31 @@ def find_commits_to_copy(
     copybot_skip_cls = []
     upstream_change_ids = {}
     upstream_hashes = repo.log_hashes(
-        revision_range=upstream_rev,
-        subtree=upstream_subtree,
+        revision_range=upstream.head_sha,
+        subtree=upstream.subtree,
         exclude_file_patterns=exclude_file_patterns,
-        num=upstream_history_length,
+        num=upstream.history_length,
     )
     if include_change_id:
         for counter, rev in enumerate(upstream_hashes):
-            if counter > upstream_limit and upstream_limit != 0:
+            if counter > upstream.history_limit > 0:
                 break
             change_id = gerrit.get_change_id(repo.get_commit_message(rev))
             if change_id:
                 upstream_change_ids[change_id] = rev
     downstreamed_revs = get_downstreamed_list(
         repo=repo,
-        downstream_rev=downstream_rev,
-        downstream_subtree=downstream_subtree,
+        downstream=downstream,
         exclude_file_patterns=exclude_file_patterns,
-        limit=downstream_limit,
         upstream_change_ids=upstream_change_ids,
-        downstream_history_length=downstream_history_length,
     )
 
     counter = 0
     pending_to_submit = False
     for rev in upstream_hashes:
         # Early exit if limit reached to avoid inadvertent continuation
-        if counter > upstream_limit and upstream_limit != 0:
-            logger.info("Hit upstream limit of %s", upstream_limit)
+        if counter > upstream.history_limit > 0:
+            logger.info("Hit upstream limit of %s", upstream.history_limit)
             break
 
         # Check if this is a filtered commit.
@@ -377,12 +338,12 @@ def find_commits_to_copy(
             path for path in commit_files if path not in filtered_commit_files
         ]
 
-        if downstream_subtree and include_paths:
+        if downstream.subtree and downstream.include_paths:
             commit_files = repo.commit_file_list(rev)
             filtered_commit_files = []
             for path in commit_files:
-                filtered_path = pathlib.Path(path).relative_to(upstream_subtree)
-                if filtered_path in include_paths:
+                filtered_path = pathlib.Path(path).relative_to(upstream.subtree)
+                if filtered_path in downstream.include_paths:
                     filtered_commit_files.append(path)
                     break
 
@@ -410,12 +371,10 @@ def find_commits_to_copy(
 def rewrite_commit_message(
     repo: gerrit.GitRepo,
     upstream_rev: str,
+    downstream: copybot_argparser.DownstreamConfig,
     change_id: str,
     skipped_files=(),
-    prepend_subject: str = "",
-    insert_into_msg: Optional[Dict[int, str]] = None,
     sign_off: bool = False,
-    keep_pseudoheaders: Iterable[str] = (),
     additional_pseudoheaders: Iterable[str] = (),
 ) -> None:
     """Reword the commit at HEAD with appropriate metadata.
@@ -423,28 +382,28 @@ def rewrite_commit_message(
     Args:
         repo: The GitRepo to operate on.
         upstream_rev: The upstream commit hash corresponding to this commit.
+        downstream: Configuration for downstream location.
         change_id: The Change-Id to add to the commit.
         skipped_files: The list of files skipped.
-        prepend_subject: A string to prepend the subject line with.
-        insert_into_msg: A Dict(line, message) of messages to add to the
-            commit msg.
         sign_off: True if Signed-off-by should be added to the commit message.
         keep_pseudoheaders: Pseudoheaders which should not be prefixed.
         additional_pseudoheaders: Psuedoheaders to be added to the commit
             message.
     """
     commit_message = repo.get_commit_message()
-    if prepend_subject:
-        commit_message = prepend_subject + commit_message
-    if insert_into_msg:
+    if downstream.prepend_subject:
+        commit_message = downstream.prepend_subject + commit_message
+    if downstream.insert_into_msg:
         tmp_commit_msg = commit_message.splitlines()
-        for line, msg in sorted(insert_into_msg.items(), reverse=True):
+        for line, msg in sorted(
+            downstream.insert_into_msg.items(), reverse=True
+        ):
             tmp_commit_msg.insert(line, msg)
         commit_message = "\n".join(tmp_commit_msg)
     pseudoheaders, commit_message = gerrit.Pseudoheaders.from_commit_message(
         commit_message
     )
-    pseudoheaders = pseudoheaders.prefix(keep=keep_pseudoheaders)
+    pseudoheaders = pseudoheaders.prefix(keep=downstream.keep_pseudoheaders)
 
     for path in skipped_files:
         pseudoheaders["CopyBot-Skipped-File"] = path
@@ -458,8 +417,8 @@ def rewrite_commit_message(
             pseudoheaders.update(parsed)
     if (
         not pseudoheaders.get("Change-Id")
-        or not keep_pseudoheaders
-        or "Change-Id" not in keep_pseudoheaders
+        or not downstream.keep_pseudoheaders
+        or "Change-Id" not in downstream.keep_pseudoheaders
     ):
         pseudoheaders["Change-Id"] = change_id
 
@@ -576,7 +535,9 @@ def run_copybot(
         )
     repo = gerrit.GitRepo.init(git_dir)
     try:
-        upstream_rev = repo.fetch(config.upstream.url, config.upstream.branch)
+        config.upstream.head_sha = repo.fetch(
+            config.upstream.url, config.upstream.branch
+        )
     except subprocess.CalledProcessError as e:
         raise gerrit.UpstreamFetchError(
             f"Failed to fetch branch {config.upstream.branch} from "
@@ -584,7 +545,7 @@ def run_copybot(
         ) from e
 
     try:
-        downstream_rev = repo.fetch(
+        config.downstream.head_sha = repo.fetch(
             config.downstream.url, config.downstream.branch
         )
     except subprocess.CalledProcessError as e:
@@ -592,28 +553,31 @@ def run_copybot(
             f"Failed to fetch branch {config.downstream.branch} from "
             f"{config.downstream.url}"
         ) from e
-    upstream_history_length = 0
-    downstream_history_length = 0
+
     if config.upstream.history_starts_with:
-        upstream_history_length = (
+        config.upstream.history_length = (
             repo.get_cl_count(
                 config.upstream.history_starts_with,
-                upstream_rev,
+                config.upstream.head_sha,
                 config.upstream.subtree,
             )
             + 1
         )
-        logger.info("Upstream history length: %d", upstream_history_length)
+        logger.info(
+            "Upstream history length: %d", config.upstream.history_length
+        )
     if config.downstream.history_starts_with:
-        downstream_history_length = (
+        config.downstream.history_length = (
             repo.get_cl_count(
                 config.downstream.history_starts_with,
-                downstream_rev,
+                config.downstream.head_sha,
                 config.downstream.subtree,
             )
             + 1
         )
-        logger.info("Downstream history length: %d", downstream_history_length)
+        logger.info(
+            "Downstream history length: %d", config.downstream.history_length
+        )
 
     # Verify that the two repositories share a history
     num_cls_to_downstream = 0
@@ -621,15 +585,11 @@ def run_copybot(
 
     last_related_rev, num_cls_to_downstream = find_last_merged_rev(
         repo,
-        upstream_rev,
-        downstream_rev,
-        config.upstream.subtree,
-        config.downstream.subtree,
+        config.upstream,
+        config.downstream,
         config.drop_paths,
         related_repo,
         pending_changes=pending_changes,
-        upstream_history_length=upstream_history_length,
-        downstream_history_length=downstream_history_length,
     )
     if last_related_rev in pending_changes:
         logger.info("Last related revision from pending changes!")
@@ -652,10 +612,7 @@ def run_copybot(
 
     num_cls_to_downstream += len(pending_changes)
 
-    if (
-        num_cls_to_downstream > config.upstream.history_limit
-        and config.upstream.history_limit != 0
-    ):
+    if num_cls_to_downstream > config.upstream.history_limit > 0:
         logger.warning(
             "There are %s CLs between HEAD and %s but the history limit is"
             " set to %s. Raising the history limit to accommodate this.",
@@ -666,7 +623,7 @@ def run_copybot(
         config.upstream.history_limit = num_cls_to_downstream
         # The reference CL may have been cherry-picked out of order.
         # Remove the downstream limit to find it in the history correctly.
-        config.downstream.history_limit = downstream_history_length
+        config.downstream.history_limit = config.downstream.history_length
 
     commit_files_map: Dict[str, List[str]] = {}
     skipped_files_map: Dict[str, List[str]] = {}
@@ -679,21 +636,14 @@ def run_copybot(
         pending_to_submit,
     ) = find_commits_to_copy(
         repo,
-        upstream_rev,
-        config.upstream.subtree,
-        downstream_rev,
-        config.downstream.subtree,
-        include_paths=config.downstream.include_paths,
-        upstream_limit=config.upstream.history_limit,
-        downstream_limit=config.downstream.history_limit,
+        config.upstream,
+        config.downstream,
         exclude_file_patterns=config.drop_paths,
         filter_file_patterns=config.filter_file_patterns,
         pending_changes=pending_changes,
         abandoned_changes=abandoned_changes,
         skip_copybot_job_names=config.skip_job_name,
         skip_author_emails=config.skip_author_email,
-        upstream_history_length=upstream_history_length,
-        downstream_history_length=downstream_history_length,
     )
 
     if not commits_to_copy:
@@ -754,7 +704,7 @@ def run_copybot(
         )
         repo.checkout("FETCH_HEAD")
     else:
-        repo.checkout(downstream_rev)
+        repo.checkout(config.downstream.head_sha)
         cl_count = 0
     updated_commits_to_copy = commits_to_copy[
         : (len(commits_to_copy) - cl_count)
@@ -857,12 +807,10 @@ def run_copybot(
                     rewrite_commit_message(
                         repo,
                         upstream_rev=rev,
+                        downstream=config.downstream,
                         change_id=change_id or gerrit.generate_change_id(),
                         skipped_files=skipped_files_map[rev],
-                        prepend_subject=config.downstream.prepend_subject,
-                        insert_into_msg=config.downstream.insert_into_msg,
                         sign_off=config.add_signed_off_by,
-                        keep_pseudoheaders=config.downstream.keep_pseudoheaders,
                         additional_pseudoheaders=[
                             *config.downstream.add_pseudoheaders,
                             "Commit: false",
@@ -878,18 +826,16 @@ def run_copybot(
             rewrite_commit_message(
                 repo,
                 upstream_rev=rev,
+                downstream=config.downstream,
                 change_id=change_id or gerrit.generate_change_id(),
                 skipped_files=skipped_files_map[rev],
-                prepend_subject=config.downstream.prepend_subject,
-                insert_into_msg=config.downstream.insert_into_msg,
                 sign_off=config.add_signed_off_by,
-                keep_pseudoheaders=config.downstream.keep_pseudoheaders,
                 additional_pseudoheaders=config.downstream.add_pseudoheaders,
             )
         current_change = repo.log(num=1, fmt="%H").stdout.strip()
         logger.info("Revision %s cherry-picked as %s", rev, current_change)
 
-    if repo.rev_parse() == downstream_rev:
+    if repo.rev_parse() == config.downstream.head_sha:
         logger.info("Nothing to push!")
     else:
         skip_cq = any(conflicted_revs) or pending_to_submit

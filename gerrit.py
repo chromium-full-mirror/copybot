@@ -222,12 +222,13 @@ class GitRepo:
 
     def log_hashes(
         self,
-        revision_range: str = "HEAD",
+        revision_range: str | None = "HEAD",
         num: int = 0,
         subtree: Union[str, "os.PathLike[str]"] = "",
         exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
     ) -> List[str]:
         """Get the commit log as a list of commit hashes."""
+        assert revision_range is not None
         result = self.log(
             revision_range=revision_range,
             fmt="%H",

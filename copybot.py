@@ -49,10 +49,15 @@ import pathlib
 import re
 import subprocess
 import tempfile
-from typing import Any
+from typing import Any, Final
 
 import copybot_argparser
 import gerrit
+
+
+PRESERVE_TAG: Final[str] = "copybot-preserve"
+REWORD_TAG: Final[str] = "copybot-reword"
+REBASE_TAG: Final[str] = "copybot-rebase"
 
 
 logger = logging.getLogger(__name__)
@@ -557,8 +562,8 @@ def verify_repos_share_history_to_adjust_limits(
     pending_modifications = False
     for _, pending_cl in pending_changes.items():
         if (
-            "copybot-reword" in pending_cl.hashtags
-            or "copybot-preserve" not in pending_cl.hashtags
+            REWORD_TAG in pending_cl.hashtags
+            or PRESERVE_TAG not in pending_cl.hashtags
         ):
             pending_modifications = True
             break
@@ -613,7 +618,7 @@ def find_pending_change_at_bottom_of_stack(
             if rev not in pending_changes:
                 break
             if any(
-                tag in ("copybot-rebase", "copybot-reword")
+                tag in (REBASE_TAG, REWORD_TAG)
                 for tag in pending_changes[rev].hashtags
             ):
                 break
@@ -675,6 +680,92 @@ def push_changes_to_downstream(
         logger.info("Skip push due to dry/local run")
 
 
+def should_preserve_pending_change(
+    pending_changes: dict[str, gerrit.GerritClInfo], rev: str
+) -> bool:
+    """Return if pending change should be preserved.
+
+    Preserved changes are cherry picked from the downstream gerrit. It allows
+    for modifications by users and a mechanism in which copybot won't overwrite
+    the desired content.
+    """
+    if rev in pending_changes and PRESERVE_TAG in pending_changes[rev].hashtags:
+        logger.info(
+            "Preserving pending change due to %s hashtag.",
+            PRESERVE_TAG,
+        )
+        return True
+    return False
+
+
+def should_reword_pending_change(
+    pending_changes: dict[str, gerrit.GerritClInfo], rev: str
+) -> bool:
+    """Return if pending change commit message should be reworded."""
+    if rev in pending_changes and REWORD_TAG in pending_changes[rev].hashtags:
+        logger.info(
+            "Rewording commit message due to %s hashtag.",
+            REWORD_TAG,
+        )
+        return True
+    return False
+
+
+def commit_with_conflicts(
+    repo: gerrit.GitRepo,
+    config: copybot_argparser.CopybotConfig,
+    patch_dir: str | "os.PathLike[str]",
+    skipped_files_map: dict[str, list[str]],
+    pending_changes: dict[str, gerrit.GerritClInfo],
+    pending_change: bool,
+    reword_pending_change: bool,
+    filtered_rev: str | None,
+    rev: str,
+) -> bool:
+    """Try to commit the pending change with a conflict.
+
+    Returns:
+        A boolean indicating if the commit was empty.
+    """
+    if pending_change:
+        repo.fetch(config.downstream.url, pending_changes[rev].current_ref)
+        try:
+            repo.cherry_pick(rev="FETCH_HEAD", allow_conflict=True)
+        except gerrit.EmptyCommitError:
+            return True
+    else:
+        try:
+            repo.cherry_pick(
+                filtered_rev or rev,
+                patch_dir=patch_dir,
+                upstream_subtree=config.upstream.subtree,
+                downstream_subtree=config.downstream.subtree,
+                include_paths=config.downstream.include_paths,
+                exclude_paths=config.drop_paths,
+                allow_conflict=True,
+            )
+        except gerrit.EmptyCommitError:
+            return True
+    if not pending_change or reword_pending_change:
+        change_id = (
+            pending_changes.get(rev) or gerrit.GerritClInfo("", "", "")
+        ).change_id
+        rewrite_commit_message(
+            repo,
+            upstream_rev=rev,
+            upstream=config.upstream,
+            downstream=config.downstream,
+            change_id=change_id or gerrit.generate_change_id(),
+            skipped_files=skipped_files_map[rev],
+            sign_off=config.add_signed_off_by,
+            additional_pseudoheaders=[
+                *config.downstream.add_pseudoheaders,
+                "Commit: false",
+            ],
+        )
+    return False
+
+
 def cherry_pick_commits_to_downstream(
     repo: gerrit.GitRepo,
     config: copybot_argparser.CopybotConfig,
@@ -715,19 +806,10 @@ def cherry_pick_commits_to_downstream(
             len(updated_commits_to_copy),
             rev,
         )
-        pending_change = False
-        reword_pending_change = False
-        if rev in pending_changes:
-            if "copybot-preserve" in pending_changes[rev].hashtags:
-                logger.info(
-                    "Preserving pending change due to copybot-preserve hashtag."
-                )
-                pending_change = True
-            if "copybot-reword" in pending_changes[rev].hashtags:
-                reword_pending_change = True
-                logger.info(
-                    "Rewording commit message due to copybot-reword hashtag."
-                )
+        pending_change = should_preserve_pending_change(pending_changes, rev)
+        reword_pending_change = should_reword_pending_change(
+            pending_changes, rev
+        )
         filtered_rev = None
         if skipped_files_map[rev]:
             filtered_rev = repo.filter_commit(
@@ -773,50 +855,23 @@ def cherry_pick_commits_to_downstream(
                 is gerrit.MergeConflictBehavior.ALLOW_CONFLICT
             ):
                 logger.warning("Committing %s with conflicts", rev)
-                if pending_change:
-                    repo.fetch(
-                        config.downstream.url, pending_changes[rev].current_ref
-                    )
-                    try:
-                        repo.cherry_pick(rev="FETCH_HEAD", allow_conflict=True)
-                    except gerrit.EmptyCommitError:
-                        logger.warning("Skip cherry-pick due to empty commit")
-                        empty_revs.append(rev)
-                        continue
+
+                was_commit_empty = commit_with_conflicts(
+                    repo,
+                    config,
+                    patch_dir,
+                    skipped_files_map,
+                    pending_changes,
+                    pending_change,
+                    reword_pending_change,
+                    filtered_rev,
+                    rev,
+                )
+                if was_commit_empty:
+                    logger.warning("Skip cherry-pick due to empty commit")
+                    empty_revs.append(rev)
                 else:
-                    try:
-                        repo.cherry_pick(
-                            filtered_rev or rev,
-                            patch_dir=patch_dir,
-                            upstream_subtree=config.upstream.subtree,
-                            downstream_subtree=config.downstream.subtree,
-                            include_paths=config.downstream.include_paths,
-                            exclude_paths=config.drop_paths,
-                            allow_conflict=True,
-                        )
-                    except gerrit.EmptyCommitError:
-                        logger.warning("Skip cherry-pick due to empty commit")
-                        empty_revs.append(rev)
-                        continue
-                if not pending_change or reword_pending_change:
-                    change_id = (
-                        pending_changes.get(rev)
-                        or gerrit.GerritClInfo("", "", "")
-                    ).change_id
-                    rewrite_commit_message(
-                        repo,
-                        upstream_rev=rev,
-                        upstream=config.upstream,
-                        downstream=config.downstream,
-                        change_id=change_id or gerrit.generate_change_id(),
-                        skipped_files=skipped_files_map[rev],
-                        sign_off=config.add_signed_off_by,
-                        additional_pseudoheaders=[
-                            *config.downstream.add_pseudoheaders,
-                            "Commit: false",
-                        ],
-                    )
-                conflicted_revs.append(rev)
+                    conflicted_revs.append(rev)
                 continue
             raise gerrit.MergeConflictsError(commits=[rev]) from e
         if not pending_change or reword_pending_change:

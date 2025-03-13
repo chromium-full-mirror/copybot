@@ -63,7 +63,14 @@ def test_main_raise_error(tmp_path):
     ):
         with pytest.raises(gerrit.PushError):
             copybot.main(
-                argv=["--json-out", str(err_out), "upstream", "downstream"]
+                argv=[
+                    "--json-out",
+                    str(err_out),
+                    "--upstream-url",
+                    "upstream",
+                    "--downstream-url",
+                    "downstream",
+                ]
             )
     assert json.loads(err_out.read_text()) == {
         "failure_reason": "FAILURE_DOWNSTREAM_PUSH_ERROR",

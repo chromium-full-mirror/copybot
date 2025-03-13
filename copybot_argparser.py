@@ -286,17 +286,22 @@ def parse_copybot_config(argv: list[str] | None = None) -> CopybotConfig:
         default="",
     )
     parser.add_argument(
-        "upstream",
+        "--upstream-url",
         help="Upstream Git URL, optionally with a branch and subtree separated"
         " by colons",
+        default="",
+        required=True,
+        dest="upstream",
     )
     parser.add_argument(
-        "downstream",
+        "--downstream-url",
         help="Downstream Git URL, optionally with a branch and subtree"
         "separated by colons",
+        default="",
+        required=True,
+        dest="downstream",
     )
     opts = parser.parse_args(argv)
-
     (
         _,
         upstream_url,

@@ -41,6 +41,7 @@ Usage: copybot.py [options...] upstream_repo:branch downstream_repo:branch
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 import json
 import logging
 import os
@@ -48,7 +49,7 @@ import pathlib
 import re
 import subprocess
 import tempfile
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any
 
 import copybot_argparser
 import gerrit
@@ -80,15 +81,15 @@ def find_last_merged_rev(
     upstream: copybot_argparser.UpstreamConfig,
     downstream: copybot_argparser.DownstreamConfig,
     exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
-    pending_changes: Optional[Dict[str, gerrit.GerritClInfo]] = None,
-) -> Tuple[str, int]:
+    pending_changes: dict[str, gerrit.GerritClInfo] | None = None,
+) -> tuple[str, int]:
     """Find the last merged revision in a Git repo.
 
     Args:
         repo: The GitRepo.
         upstream: Configuration for upstream location.
         downstream: Configuration for downstream location.
-        exclude_file_patterns: List of paths to be excluded.
+        exclude_file_patterns: list of paths to be excluded.
         pending_changes: Changes pending in downstream repo.
 
     Returns:
@@ -154,15 +155,15 @@ def get_downstreamed_list(
     repo: gerrit.GitRepo,
     downstream: copybot_argparser.DownstreamConfig,
     exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
-    upstream_change_ids: Optional[Dict[str, str]] = None,
-) -> List[str]:
+    upstream_change_ids: dict[str, str] | None = None,
+) -> list[str]:
     """Find the last merged revision in a Git repo.
 
     Args:
         repo: The GitRepo.
         downstream: Configuration for downstream location.
-        exclude_file_patterns: List of paths to be excluded.
-        upstream_change_ids: Dictionary of upstream Change-Id's and their
+        exclude_file_patterns: list of paths to be excluded.
+        upstream_change_ids: dictionary of upstream Change-Id's and their
             associated upstream commit hash.
 
     Returns:
@@ -200,14 +201,14 @@ def find_commits_to_copy(
     upstream: copybot_argparser.UpstreamConfig,
     downstream: copybot_argparser.DownstreamConfig,
     exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
-    filter_file_patterns: Optional[List[re.Pattern[Any]]] = None,
-    pending_changes: Optional[Dict[str, gerrit.GerritClInfo]] = None,
-    abandoned_changes: Optional[Dict[str, gerrit.GerritClInfo]] = None,
+    filter_file_patterns: list[re.Pattern[Any]] | None = None,
+    pending_changes: dict[str, gerrit.GerritClInfo] | None = None,
+    abandoned_changes: dict[str, gerrit.GerritClInfo] | None = None,
     skip_copybot_job_names: Iterable[str] = (),
     skip_author_emails: Iterable[str] = (),
     include_change_id: bool = False,
-) -> Tuple[
-    List[str], Dict[str, List[str]], Dict[str, List[str]], List[str], bool
+) -> tuple[
+    list[str], dict[str, list[str]], dict[str, list[str]], list[str], bool
 ]:
     """Find the commits to copy to downstream.
 
@@ -533,7 +534,7 @@ def fetch_history_length(
 def verify_repos_share_history_to_adjust_limits(
     repo: gerrit.GitRepo,
     config: copybot_argparser.CopybotConfig,
-    pending_changes: Dict[str, gerrit.GerritClInfo],
+    pending_changes: dict[str, gerrit.GerritClInfo],
 ) -> None:
     """Verify history and adjust limits if there are more CLs downstream."""
 
@@ -583,7 +584,7 @@ def verify_repos_share_history_to_adjust_limits(
 def find_pending_change_at_bottom_of_stack(
     copybot_skip_cls: list[str],
     commits_to_copy: list[str],
-    pending_changes: Dict[str, gerrit.GerritClInfo],
+    pending_changes: dict[str, gerrit.GerritClInfo],
 ) -> tuple[str | None, int]:
     """Determine if there is a pending change at the beginning of the stack.
 
@@ -625,7 +626,7 @@ def checkout_downstream_repo(
     repo: gerrit.GitRepo,
     downstream: copybot_argparser.DownstreamConfig,
     commits_to_copy: list[str],
-    pending_changes: Dict[str, gerrit.GerritClInfo],
+    pending_changes: dict[str, gerrit.GerritClInfo],
     cl_count: int,
     pending_rev: str | None,
 ) -> None:
@@ -677,12 +678,12 @@ def push_changes_to_downstream(
 def cherry_pick_commits_to_downstream(
     repo: gerrit.GitRepo,
     config: copybot_argparser.CopybotConfig,
-    patch_dir: Union[str, "os.PathLike[str]"],
-    skipped_files_map: Dict[str, List[str]],
-    commit_files_map: Dict[str, List[str]],
+    patch_dir: str | "os.PathLike[str]",
+    skipped_files_map: dict[str, list[str]],
+    commit_files_map: dict[str, list[str]],
     commits_to_copy: list[str],
     updated_commits_to_copy: list[str],
-    pending_changes: Dict[str, gerrit.GerritClInfo],
+    pending_changes: dict[str, gerrit.GerritClInfo],
 ) -> tuple[list[str], list[str], list[str]]:
     """Cherry pick commits to downstream.
 
@@ -897,8 +898,8 @@ def log_unapplied_commits(
 
 def run_copybot(
     config: copybot_argparser.CopybotConfig,
-    git_dir: Union[str, "os.PathLike[str]"],
-    patch_dir: Union[str, "os.PathLike[str]"],
+    git_dir: str | "os.PathLike[str]",
+    patch_dir: str | "os.PathLike[str]",
 ) -> None:
     """Run copybot.
 
@@ -910,9 +911,9 @@ def run_copybot(
     if config.downstream.is_local:
         git_dir = config.downstream.url
 
-    pending_changes: Dict[str, gerrit.GerritClInfo] = {}
-    abandoned_changes: Dict[str, gerrit.GerritClInfo] = {}
-    gerrit_inst: Optional[gerrit.Gerrit] = None
+    pending_changes: dict[str, gerrit.GerritClInfo] = {}
+    abandoned_changes: dict[str, gerrit.GerritClInfo] = {}
+    gerrit_inst: gerrit.Gerrit | None = None
     if (m := is_server_gob(str(config.downstream.url))) is not None:
         downstream_gob_host = m.group(1)
         downstream_project = m.group(2)
@@ -948,8 +949,8 @@ def run_copybot(
 
     verify_repos_share_history_to_adjust_limits(repo, config, pending_changes)
 
-    commit_files_map: Dict[str, List[str]] = {}
-    skipped_files_map: Dict[str, List[str]] = {}
+    commit_files_map: dict[str, list[str]] = {}
+    skipped_files_map: dict[str, list[str]] = {}
 
     (
         commits_to_copy,
@@ -1036,7 +1037,7 @@ def write_json_error(path: pathlib.Path, err: Exception | None) -> None:
         path: The Path to write to.
         err: The exception to serialize.
     """
-    err_json: Dict[str, Any] = {}
+    err_json: dict[str, Any] = {}
     if err:
         if isinstance(err, gerrit.CopybotFatalError):
             err_json["failure_reason"] = err.enum_name
@@ -1048,7 +1049,7 @@ def write_json_error(path: pathlib.Path, err: Exception | None) -> None:
     path.write_text(json.dumps(err_json))
 
 
-def main(argv: Optional[List[str]] = None) -> None:
+def main(argv: list[str] | None = None) -> None:
     config = copybot_argparser.parse_copybot_config(argv)
     logging.basicConfig(
         format="%(asctime)s %(levelname)s: %(message)s",

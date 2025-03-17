@@ -892,7 +892,7 @@ def cherry_pick_commits_to_downstream(
                 sign_off=config.add_signed_off_by,
                 additional_pseudoheaders=config.downstream.add_pseudoheaders,
             )
-        current_change = repo.log(num=1, fmt="%H").stdout.strip()
+        current_change = repo.log(num=1, fmt="%H")
         logger.info("Revision %s cherry-picked as %s", rev, current_change)
     return conflicted_revs, empty_revs, skipped_revs
 
@@ -901,9 +901,7 @@ def log_unapplied_empty_commits(
     repo: gerrit.GitRepoInterface, empty_revs: list[str]
 ) -> None:
     """Log warning commits that were not applied as they were empty."""
-    emptylist = [
-        repo.log(rev, fmt="%H %s", num=1).stdout.strip() for rev in empty_revs
-    ]
+    emptylist = [repo.log(rev, fmt="%H %s", num=1) for rev in empty_revs]
     if emptylist:
         logger.warning(
             "The following commits were not applied because they were empty:"
@@ -916,9 +914,7 @@ def log_unapplied_merge_conflicted_commits(
     repo: gerrit.GitRepoInterface, skipped_revs: list[str]
 ) -> None:
     """Log error commits that were not applied due to merge conflict."""
-    revlist = [
-        repo.log(rev, fmt="%H %s", num=1).stdout.strip() for rev in skipped_revs
-    ]
+    revlist = [repo.log(rev, fmt="%H %s", num=1) for rev in skipped_revs]
     if revlist:
         logger.error(
             "The following commits were not applied due to merge conflict:"
@@ -933,8 +929,7 @@ def log_unapplied_commits_with_conflicts(
 ) -> None:
     """Log error commits that were uploaded with conflicts."""
     conflictedlist = [
-        repo.log(rev, fmt="%H %s", num=1).stdout.strip()
-        for rev in conflicted_revs
+        repo.log(rev, fmt="%H %s", num=1) for rev in conflicted_revs
     ]
     if conflictedlist:
         logger.error("The following commits were uploaded with conflicts:")

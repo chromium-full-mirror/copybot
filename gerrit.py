@@ -161,7 +161,7 @@ class GitRepoInterface(Protocol):
 
     def fetch(self, remote: str, ref: str = "") -> str: ...
 
-    def checkout(self, ref: str) -> "subprocess.CompletedProcess[str]": ...
+    def checkout(self, ref: str) -> None: ...
 
     def log(
         self,
@@ -170,7 +170,7 @@ class GitRepoInterface(Protocol):
         num: int = 0,
         subtree: Union[str, "os.PathLike[str]"] = "",
         exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
-    ) -> "subprocess.CompletedProcess[str]": ...
+    ) -> str: ...
 
     def log_hashes(
         self,
@@ -276,9 +276,9 @@ class GitRepo:
         self._run_git("fetch", remote, *extra_args)
         return self.rev_parse("FETCH_HEAD")
 
-    def checkout(self, ref: str) -> "subprocess.CompletedProcess[str]":
+    def checkout(self, ref: str) -> None:
         """Do a `git checkout`."""
-        return self._run_git("checkout", ref)
+        self._run_git("checkout", ref)
 
     def log(
         self,
@@ -287,7 +287,7 @@ class GitRepo:
         num: int = 0,
         subtree: Union[str, "os.PathLike[str]"] = "",
         exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
-    ) -> "subprocess.CompletedProcess[str]":
+    ) -> str:
         """Do a `git log`."""
         extra_args = ["--first-parent"]
         if fmt:
@@ -300,7 +300,8 @@ class GitRepo:
         )
         if subtree:
             extra_args.append(str(subtree))
-        return self._run_git("log", revision_range, *extra_args)
+        result = self._run_git("log", revision_range, *extra_args)
+        return result.stdout.strip()
 
     def log_hashes(
         self,
@@ -318,27 +319,23 @@ class GitRepo:
             subtree=subtree,
             exclude_file_patterns=exclude_file_patterns,
         )
-        return result.stdout.splitlines()
+        return result.splitlines()
 
     def get_commit_message(self, rev: str = "HEAD") -> str:
         """Get a commit message of a commit."""
-        result = self.log(revision_range=rev, num=1, fmt="%B")
-        return result.stdout
+        return self.log(revision_range=rev, num=1, fmt="%B")
 
     def get_author_email(self, rev: str = "HEAD") -> str:
         """Get the authors email of a commit."""
-        result = self.log(revision_range=rev, num=1, fmt="%aE")
-        return result.stdout.strip()
+        return self.log(revision_range=rev, num=1, fmt="%aE")
 
     def get_author_name(self, rev: str = "HEAD") -> str:
         """Get the authors name of a commit."""
-        result = self.log(revision_range=rev, num=1, fmt="%aN")
-        return result.stdout.strip()
+        return self.log(revision_range=rev, num=1, fmt="%aN")
 
     def get_subject(self, rev: str = "HEAD") -> str:
         """Get the subject of a commit."""
-        result = self.log(revision_range=rev, num=1, fmt="%s")
-        return result.stdout.strip()
+        return self.log(revision_range=rev, num=1, fmt="%s")
 
     def commit_file_list(self, rev: str = "HEAD") -> List[str]:
         """Get the files modified by a commit."""

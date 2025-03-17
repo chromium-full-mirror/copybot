@@ -82,7 +82,7 @@ def are_repos_related(
 
 
 def find_last_merged_rev(
-    repo: gerrit.GitRepo,
+    repo: gerrit.GitRepoInterface,
     upstream: copybot_argparser.UpstreamConfig,
     downstream: copybot_argparser.DownstreamConfig,
     exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
@@ -157,7 +157,7 @@ def find_last_merged_rev(
 
 
 def get_downstreamed_list(
-    repo: gerrit.GitRepo,
+    repo: gerrit.GitRepoInterface,
     downstream: copybot_argparser.DownstreamConfig,
     exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
     upstream_change_ids: dict[str, str] | None = None,
@@ -202,7 +202,7 @@ def get_downstreamed_list(
 
 
 def find_commits_to_copy(
-    repo: gerrit.GitRepo,
+    repo: gerrit.GitRepoInterface,
     upstream: copybot_argparser.UpstreamConfig,
     downstream: copybot_argparser.DownstreamConfig,
     exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
@@ -391,7 +391,7 @@ def find_commits_to_copy(
 
 
 def rewrite_commit_message(
-    repo: gerrit.GitRepo,
+    repo: gerrit.GitRepoInterface,
     upstream_rev: str,
     upstream: copybot_argparser.UpstreamConfig,
     downstream: copybot_argparser.DownstreamConfig,
@@ -508,7 +508,9 @@ def is_server_gob(url: str) -> re.Match[str] | None:
     )
 
 
-def fetch_repo_head_sha(repo: gerrit.GitRepo, url: str, branch: str) -> str:
+def fetch_repo_head_sha(
+    repo: gerrit.GitRepoInterface, url: str, branch: str
+) -> str:
     """Fetch HEAD sha of the given repository and branch."""
     try:
         return repo.fetch(url, branch)
@@ -519,7 +521,9 @@ def fetch_repo_head_sha(repo: gerrit.GitRepo, url: str, branch: str) -> str:
 
 
 def fetch_history_length(
-    repo: gerrit.GitRepo, target: copybot_argparser.TargetConfig, location: str
+    repo: gerrit.GitRepoInterface,
+    target: copybot_argparser.TargetConfig,
+    location: str,
 ) -> int:
     """Fetch the history length from where it starts to HEAD."""
     if target.history_starts_with:
@@ -537,7 +541,7 @@ def fetch_history_length(
 
 
 def verify_repos_share_history_to_adjust_limits(
-    repo: gerrit.GitRepo,
+    repo: gerrit.GitRepoInterface,
     config: copybot_argparser.CopybotConfig,
     pending_changes: dict[str, gerrit.GerritClInfo],
 ) -> None:
@@ -628,7 +632,7 @@ def find_pending_change_at_bottom_of_stack(
 
 
 def checkout_downstream_repo(
-    repo: gerrit.GitRepo,
+    repo: gerrit.GitRepoInterface,
     downstream: copybot_argparser.DownstreamConfig,
     commits_to_copy: list[str],
     pending_changes: dict[str, gerrit.GerritClInfo],
@@ -658,7 +662,7 @@ def checkout_downstream_repo(
 
 
 def push_changes_to_downstream(
-    repo: gerrit.GitRepo,
+    repo: gerrit.GitRepoInterface,
     config: copybot_argparser.CopybotConfig,
     downstream: copybot_argparser.DownstreamConfig,
     skip_cq: bool,
@@ -712,7 +716,7 @@ def should_reword_pending_change(
 
 
 def commit_with_conflicts(
-    repo: gerrit.GitRepo,
+    repo: gerrit.GitRepoInterface,
     config: copybot_argparser.CopybotConfig,
     patch_dir: str | "os.PathLike[str]",
     skipped_files_map: dict[str, list[str]],
@@ -767,7 +771,7 @@ def commit_with_conflicts(
 
 
 def cherry_pick_commits_to_downstream(
-    repo: gerrit.GitRepo,
+    repo: gerrit.GitRepoInterface,
     config: copybot_argparser.CopybotConfig,
     patch_dir: str | "os.PathLike[str]",
     skipped_files_map: dict[str, list[str]],
@@ -779,7 +783,7 @@ def cherry_pick_commits_to_downstream(
     """Cherry pick commits to downstream.
 
     Args:
-        repo: gerrit.GitRepo instance
+        repo: gerrit.GitRepoInterface instance
         config: Copybot configuration object
         patch_dir: A temporary directory to use for storing patch files.
         skipped_files_map: A mapping of commit hashes to the files that should
@@ -894,7 +898,7 @@ def cherry_pick_commits_to_downstream(
 
 
 def log_unapplied_empty_commits(
-    repo: gerrit.GitRepo, empty_revs: list[str]
+    repo: gerrit.GitRepoInterface, empty_revs: list[str]
 ) -> None:
     """Log warning commits that were not applied as they were empty."""
     emptylist = [
@@ -909,7 +913,7 @@ def log_unapplied_empty_commits(
 
 
 def log_unapplied_merge_conflicted_commits(
-    repo: gerrit.GitRepo, skipped_revs: list[str]
+    repo: gerrit.GitRepoInterface, skipped_revs: list[str]
 ) -> None:
     """Log error commits that were not applied due to merge conflict."""
     revlist = [
@@ -925,7 +929,7 @@ def log_unapplied_merge_conflicted_commits(
 
 
 def log_unapplied_commits_with_conflicts(
-    repo: gerrit.GitRepo, conflicted_revs: list[str]
+    repo: gerrit.GitRepoInterface, conflicted_revs: list[str]
 ) -> None:
     """Log error commits that were uploaded with conflicts."""
     conflictedlist = [
@@ -940,7 +944,7 @@ def log_unapplied_commits_with_conflicts(
 
 
 def log_unapplied_commits(
-    repo: gerrit.GitRepo,
+    repo: gerrit.GitRepoInterface,
     empty_revs: list[str],
     skipped_revs: list[str],
     conflicted_revs: list[str],
@@ -952,6 +956,8 @@ def log_unapplied_commits(
 
 
 def run_copybot(
+    GitRepoCls: type[gerrit.GitRepoInterface],
+    GerritCls: type[gerrit.GerritInterface],
     config: copybot_argparser.CopybotConfig,
     git_dir: str | "os.PathLike[str]",
     patch_dir: str | "os.PathLike[str]",
@@ -959,6 +965,8 @@ def run_copybot(
     """Run copybot.
 
     Args:
+        GitRepoCls: A class implementing GitRepoInterface interface.
+        GerritCls: A class implementing GerritInterface interface.
         config: The parsed command line arguments.
         git_dir: A temporary or local directory to use for Git operations.
         patch_dir: A temporary directory to use for storing patch files.
@@ -968,12 +976,12 @@ def run_copybot(
 
     pending_changes: dict[str, gerrit.GerritClInfo] = {}
     abandoned_changes: dict[str, gerrit.GerritClInfo] = {}
-    gerrit_inst: gerrit.Gerrit | None = None
+    gerrit_inst: gerrit.GerritInterface | None = None
     if (m := is_server_gob(str(config.downstream.url))) is not None:
         downstream_gob_host = m.group(1)
         downstream_project = m.group(2)
 
-        gerrit_inst = gerrit.Gerrit(
+        gerrit_inst = GerritCls(
             f"{downstream_gob_host}-review.googlesource.com"
         )
         pending_changes, abandoned_changes = gerrit_inst.find_pending_changes(
@@ -988,7 +996,7 @@ def run_copybot(
             len(pending_changes),
             len(abandoned_changes),
         )
-    repo = gerrit.GitRepo.init(git_dir)
+    repo = GitRepoCls(git_dir)
     config.upstream.head_sha = fetch_repo_head_sha(
         repo, config.upstream.url, config.upstream.branch
     )
@@ -1123,7 +1131,9 @@ def main(argv: list[str] | None = None) -> None:
             tempfile.TemporaryDirectory(".copybot") as git_dir,
             tempfile.TemporaryDirectory("_patches") as patch_dir,
         ):
-            run_copybot(config, git_dir, patch_dir)
+            run_copybot(
+                gerrit.GitRepo, gerrit.Gerrit, config, git_dir, patch_dir
+            )
     except NothingToDo as e:
         logger.info("%s. Nothing to do!", str(e))
     except Exception as e:

@@ -21,7 +21,17 @@ import shlex
 import subprocess
 import tempfile
 import time
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Protocol,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 import requests  # pylint: disable=import-error
 
@@ -142,11 +152,86 @@ class GerritClInfo:
         self.current_ref = ref
 
 
+class GitRepoInterface(Protocol):
+    """Interface for common Git repository actions."""
+
+    def __init__(self, git_dir: Union[str, "os.PathLike[str]"]) -> None: ...
+
+    def rev_parse(self, rev: str = "HEAD") -> str: ...
+
+    def fetch(self, remote: str, ref: str = "") -> str: ...
+
+    def checkout(self, ref: str) -> "subprocess.CompletedProcess[str]": ...
+
+    def log(
+        self,
+        revision_range: str = "HEAD",
+        fmt: str = "",
+        num: int = 0,
+        subtree: Union[str, "os.PathLike[str]"] = "",
+        exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
+    ) -> "subprocess.CompletedProcess[str]": ...
+
+    def log_hashes(
+        self,
+        revision_range: str | None = "HEAD",
+        num: int = 0,
+        subtree: Union[str, "os.PathLike[str]"] = "",
+        exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
+    ) -> List[str]: ...
+
+    def get_commit_message(self, rev: str = "HEAD") -> str: ...
+
+    def get_author_email(self, rev: str = "HEAD") -> str: ...
+
+    def get_author_name(self, rev: str = "HEAD") -> str: ...
+
+    def get_subject(self, rev: str = "HEAD") -> str: ...
+
+    def commit_file_list(self, rev: str = "HEAD") -> List[str]: ...
+
+    def reword(
+        self, new_message: str, sign_off: bool = False, update_author: str = ""
+    ) -> str: ...
+
+    def filter_commit(
+        self,
+        rev: str = "HEAD",
+        patch_dir: Union[str, "os.PathLike[str]"] = "",
+        files: Iterable[str] = (),
+    ): ...
+
+    def cherry_pick(
+        self,
+        rev: str,
+        patch_dir: Union[str, "os.PathLike[str]"] = "",
+        upstream_subtree: Union[str, "os.PathLike[str]"] = "",
+        downstream_subtree: Union[str, "os.PathLike[str]"] = "",
+        include_paths: Optional[List[Union[str, "os.PathLike[str]"]]] = None,
+        exclude_paths: Optional[List[Union[str, "os.PathLike[str]"]]] = None,
+        allow_conflict: bool = False,
+    ) -> None: ...
+
+    def push(
+        self, url: str, refspec: str, options: Iterable[str] = ()
+    ) -> None: ...
+
+    def get_cl_count(
+        self,
+        original_rev: str,
+        current_rev: str | None,
+        subtree: Union[str, "os.PathLike[str]"] = "",
+    ) -> int: ...
+
+
 class GitRepo:
     """Class wrapping common Git repository actions."""
 
     def __init__(self, git_dir: Union[str, "os.PathLike[str]"]) -> None:
-        self.git_dir = git_dir
+        """Do a `git init` to create a new repository."""
+        self.git_dir = pathlib.Path(git_dir)
+        if not (self.git_dir / ".git").exists():
+            self._run_git("init")
 
     def _run_git(
         self, *args: Any, **kwargs: Any
@@ -173,15 +258,6 @@ class GitRepo:
             for line in e.stderr.splitlines():
                 logger.error("    %s", line)
             raise
-
-    @classmethod
-    def init(cls, git_dir: Union[str, "os.PathLike[str]"]) -> GitRepo:
-        """Do a `git init` to create a new repository."""
-        git_dir = pathlib.Path(git_dir)
-        repo = cls(git_dir)
-        if not (git_dir / ".git").exists():
-            repo._run_git("init")  # pylint: disable=protected-access
-        return repo
 
     def rev_parse(self, rev: str = "HEAD") -> str:
         """Do a `git rev-parse`."""
@@ -719,6 +795,21 @@ class Pseudoheaders:
                 self[key] = value
         else:
             raise TypeError(f"Other class has conflicting type({type(other)})")
+
+
+class GerritInterface(Protocol):
+    """Interface for actions on a Gerrit host."""
+
+    def __init__(self, hostname: str) -> None: ...
+
+    def find_pending_changes(
+        self,
+        project: str,
+        branch: str,
+        hashtags: Iterable[str] = (),
+        subtree: Union[str, "os.PathLike[str]"] = "",
+        exclude_paths: Iterable[str | "os.PathLike[str]"] = (),
+    ) -> Tuple[Dict[str, GerritClInfo], Dict[str, GerritClInfo]]: ...
 
 
 class Gerrit:

@@ -399,7 +399,7 @@ def rewrite_commit_message(
     skipped_files=(),
     sign_off: bool = False,
     additional_pseudoheaders: Iterable[str] = (),
-) -> None:
+) -> tuple[str, str]:
     """Reword the commit at HEAD with appropriate metadata.
 
     Args:
@@ -410,9 +410,12 @@ def rewrite_commit_message(
         change_id: The Change-Id to add to the commit.
         skipped_files: The list of files skipped.
         sign_off: True if Signed-off-by should be added to the commit message.
-        keep_pseudoheaders: Pseudoheaders which should not be prefixed.
         additional_pseudoheaders: Psuedoheaders to be added to the commit
             message.
+
+    Returns:
+        * Reworded commit message
+        * Updated author
     """
     commit_message = repo.get_commit_message()
     if downstream.prepend_subject:
@@ -459,6 +462,7 @@ def rewrite_commit_message(
         orig_author_name + "<" + author + sym + domain + "-copybot-pick" + ">"
     )
     repo.reword(commit_message, sign_off=sign_off, update_author=updated_author)
+    return commit_message, updated_author
 
 
 def get_push_refspec(

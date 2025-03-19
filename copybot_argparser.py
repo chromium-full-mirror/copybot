@@ -111,14 +111,19 @@ class CopybotConfig:
     topic: str
     json_out: pathlib.Path
     dry_run: bool
+    # File paths that should be filtered out. CLs will be modified to drop
+    # these paths.
     filter_file_patterns: list[re.Pattern]
-    drop_paths: list[str | os.PathLike[str]]
+    # A list of paths to be excluded.
+    exclude_file_patterns: list[str | os.PathLike[str]]
     exclude_method: str
     merge_conflict_behavior: gerrit.MergeConflictBehavior
     add_signed_off_by: bool
     filter_changes: bool
-    skip_job_name: list[str]
-    skip_author_email: list[str]
+    # A list of names of copybot jobs to not copy CLs from.
+    skip_job_names: list[str]
+    # A list of emails of authors to not copy CLs from.
+    skip_author_emails: list[str]
     downstream: DownstreamConfig
     upstream: UpstreamConfig
 
@@ -324,12 +329,12 @@ def parse_copybot_config(argv: list[str] | None = None) -> CopybotConfig:
         downstream_subtree,
     ) = parse_repo_info(opts.downstream)
 
-    drop_paths = []
+    exclude_file_patterns = []
     if (
         gerrit.ExclusionBehavior[opts.exclude_method]
         == gerrit.ExclusionBehavior.DROP
     ):
-        drop_paths = opts.exclude_file_patterns
+        exclude_file_patterns = opts.exclude_file_patterns
 
     filter_file_patterns = [
         re.compile(str(pattern)) for pattern in opts.exclude_file_patterns
@@ -370,15 +375,15 @@ def parse_copybot_config(argv: list[str] | None = None) -> CopybotConfig:
         json_out=opts.json_out,
         dry_run=opts.dry_run,
         filter_file_patterns=filter_file_patterns,
-        drop_paths=drop_paths,
+        exclude_file_patterns=exclude_file_patterns,
         exclude_method=opts.exclude_method,
         merge_conflict_behavior=gerrit.MergeConflictBehavior[
             opts.merge_conflict_behavior
         ],
         add_signed_off_by=opts.add_signed_off_by,
         filter_changes=opts.filter_changes,
-        skip_job_name=opts.skip_job_name,
-        skip_author_email=opts.skip_author_email,
+        skip_job_names=opts.skip_job_name,
+        skip_author_emails=opts.skip_author_email,
         downstream=downstream_config,
         upstream=upstream_config,
     )

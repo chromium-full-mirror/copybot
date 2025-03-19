@@ -83,18 +83,18 @@ def are_repos_related(
 
 def find_last_merged_rev(
     repo: gerrit.GitRepoInterface,
+    config: copybot_argparser.CopybotConfig,
     upstream: copybot_argparser.UpstreamConfig,
     downstream: copybot_argparser.DownstreamConfig,
-    exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
     pending_changes: dict[str, gerrit.GerritClInfo] | None = None,
 ) -> tuple[str, int]:
     """Find the last merged revision in a Git repo.
 
     Args:
         repo: The GitRepo.
+        config: The parsed command line arguments.
         upstream: Configuration for upstream location.
         downstream: Configuration for downstream location.
-        exclude_file_patterns: list of paths to be excluded.
         pending_changes: Changes pending in downstream repo.
 
     Returns:
@@ -109,13 +109,13 @@ def find_last_merged_rev(
     upstream_hashes = repo.log_hashes(
         revision_range=upstream.head_sha,
         subtree=upstream.subtree,
-        exclude_file_patterns=exclude_file_patterns,
+        exclude_file_patterns=config.exclude_file_patterns,
         num=upstream.history_length,
     )
     downstream_hashes = repo.log_hashes(
         revision_range=downstream.head_sha,
         subtree=downstream.subtree,
-        exclude_file_patterns=exclude_file_patterns,
+        exclude_file_patterns=config.exclude_file_patterns,
         num=downstream.history_length,
     )
 
@@ -158,16 +158,16 @@ def find_last_merged_rev(
 
 def get_downstreamed_list(
     repo: gerrit.GitRepoInterface,
+    config: copybot_argparser.CopybotConfig,
     downstream: copybot_argparser.DownstreamConfig,
-    exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
     upstream_change_ids: dict[str, str] | None = None,
 ) -> list[str]:
     """Find the last merged revision in a Git repo.
 
     Args:
         repo: The GitRepo.
+        config: The parsed command line arguments.
         downstream: Configuration for downstream location.
-        exclude_file_patterns: list of paths to be excluded.
         upstream_change_ids: dictionary of upstream Change-Id's and their
             associated upstream commit hash.
 
@@ -177,7 +177,7 @@ def get_downstreamed_list(
     downstream_hashes = repo.log_hashes(
         revision_range=downstream.head_sha,
         subtree=downstream.subtree,
-        exclude_file_patterns=exclude_file_patterns,
+        exclude_file_patterns=config.exclude_file_patterns,
         num=downstream.history_length,
     )
     downstreamed_revs = list(downstream_hashes)
@@ -203,14 +203,11 @@ def get_downstreamed_list(
 
 def find_commits_to_copy(
     repo: gerrit.GitRepoInterface,
+    config: copybot_argparser.CopybotConfig,
     upstream: copybot_argparser.UpstreamConfig,
     downstream: copybot_argparser.DownstreamConfig,
-    exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
-    filter_file_patterns: list[re.Pattern[Any]] | None = None,
     pending_changes: dict[str, gerrit.GerritClInfo] | None = None,
     abandoned_changes: dict[str, gerrit.GerritClInfo] | None = None,
-    skip_copybot_job_names: Iterable[str] = (),
-    skip_author_emails: Iterable[str] = (),
     include_change_id: bool = False,
 ) -> tuple[
     list[str], dict[str, list[str]], dict[str, list[str]], list[str], bool
@@ -219,16 +216,11 @@ def find_commits_to_copy(
 
     Args:
         repo: The GitRepo.
+        config: The parsed command line arguments.
         upstream: Configuration for upstream location.
         downstream: Configuration for downstream location.
-        exclude_file_patterns: File paths that should not be copied.
-            CLs will be dropped containing these paths.
-        filter_file_patterns: File paths that should be filtered out.
-            CLs will be modified to drop these paths.
         pending_changes: Changes pending in downstream repo.
         abandoned_changes: Changes abandoned in downstream repo.
-        skip_copybot_job_names: Names of copybot jobs to not copy CLs from
-        skip_author_emails: Emails of authors to not copy CLs from
         include_change_id: Bool specifying whether or not to
             consider Change-Ids
 
@@ -255,7 +247,7 @@ def find_commits_to_copy(
     upstream_hashes = repo.log_hashes(
         revision_range=upstream.head_sha,
         subtree=upstream.subtree,
-        exclude_file_patterns=exclude_file_patterns,
+        exclude_file_patterns=config.exclude_file_patterns,
         num=upstream.history_length,
     )
     if include_change_id:
@@ -267,8 +259,8 @@ def find_commits_to_copy(
                 upstream_change_ids[change_id] = rev
     downstreamed_revs = get_downstreamed_list(
         repo=repo,
+        config=config,
         downstream=downstream,
-        exclude_file_patterns=exclude_file_patterns,
         upstream_change_ids=upstream_change_ids,
     )
 
@@ -287,7 +279,7 @@ def find_commits_to_copy(
             commit_message,
         ) = gerrit.Pseudoheaders.from_commit_message(commit_message)
         job_name = pseudoheaders.get("Copybot-Job-Name")
-        if skip_copybot_job_names and job_name in skip_copybot_job_names:
+        if config.skip_job_names and job_name in config.skip_job_names:
             logger.info(
                 "Skip %s due to Copybot-Job-Name: %s",
                 rev,
@@ -295,9 +287,9 @@ def find_commits_to_copy(
             )
             continue
 
-        if not job_name and skip_author_emails:
+        if not job_name and config.skip_author_emails:
             author_email = repo.get_author_email(rev=rev)
-            if author_email in skip_author_emails:
+            if author_email in config.skip_author_emails:
                 logger.info(
                     "Skip %s due to author %s",
                     rev,
@@ -342,7 +334,7 @@ def find_commits_to_copy(
         filtered_commit_files = []
         for path in commit_files:
             if not any(
-                re.fullmatch(p, path) for p in filter_file_patterns or []
+                re.fullmatch(p, path) for p in config.filter_file_patterns or []
             ):
                 filtered_commit_files.append(path)
 
@@ -556,9 +548,9 @@ def verify_repos_share_history_to_adjust_limits(
 
     last_related_rev, num_cls_to_downstream = find_last_merged_rev(
         repo,
+        config,
         config.upstream,
         config.downstream,
-        config.drop_paths,
         pending_changes=pending_changes,
     )
     if last_related_rev in pending_changes:
@@ -749,7 +741,7 @@ def commit_with_conflicts(
                 upstream_subtree=config.upstream.subtree,
                 downstream_subtree=config.downstream.subtree,
                 include_paths=config.downstream.include_paths,
-                exclude_paths=config.drop_paths,
+                exclude_paths=config.exclude_file_patterns,
                 allow_conflict=True,
             )
         except gerrit.EmptyCommitError:
@@ -836,7 +828,7 @@ def cherry_pick_commits_to_downstream(
                     upstream_subtree=config.upstream.subtree,
                     downstream_subtree=config.downstream.subtree,
                     include_paths=config.downstream.include_paths,
-                    exclude_paths=config.drop_paths,
+                    exclude_paths=config.exclude_file_patterns,
                 )
         except gerrit.EmptyCommitError:
             logger.warning("Skip cherry-pick due to empty commit")
@@ -988,7 +980,7 @@ def run_copybot(
             branch=config.downstream.branch,
             hashtags=[config.topic],
             subtree=config.downstream.subtree,
-            exclude_paths=config.drop_paths,
+            exclude_paths=config.exclude_file_patterns,
         )
         logger.info(
             "Found %s pending and %s abandoned changes already on Gerrit",
@@ -1022,14 +1014,11 @@ def run_copybot(
         pending_to_submit,
     ) = find_commits_to_copy(
         repo,
+        config,
         config.upstream,
         config.downstream,
-        exclude_file_patterns=config.drop_paths,
-        filter_file_patterns=config.filter_file_patterns,
         pending_changes=pending_changes,
         abandoned_changes=abandoned_changes,
-        skip_copybot_job_names=config.skip_job_name,
-        skip_author_emails=config.skip_author_email,
     )
 
     if not commits_to_copy:

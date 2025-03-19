@@ -61,13 +61,13 @@ def get_default_copybot_config() -> copybot_argparser.CopybotConfig:
         json_out=pathlib.Path("json_out"),
         dry_run=False,
         filter_file_patterns=[],
-        drop_paths=[],
+        exclude_file_patterns=[],
         exclude_method="DROP",
         merge_conflict_behavior=gerrit.MergeConflictBehavior.SKIP,
         add_signed_off_by=False,
         filter_changes=True,
-        skip_job_name=[],
-        skip_author_email=[],
+        skip_job_names=[],
+        skip_author_emails=[],
         downstream=downstream_config,
         upstream=upstream_config,
     )
@@ -262,8 +262,8 @@ def test_are_repos_related(copybot_config) -> None:
 def test_get_downstreamed_list(copybot_config) -> None:
     downstreamed_revs = copybot.get_downstreamed_list(
         GitRepoMock(),
+        copybot_config,
         copybot_config.downstream,
-        exclude_file_patterns=[],
         upstream_change_ids={},
     )
     assert downstreamed_revs == [REVISION]
@@ -272,8 +272,8 @@ def test_get_downstreamed_list(copybot_config) -> None:
 def test_get_downstreamed_list__mapped_changed_id(copybot_config) -> None:
     downstreamed_revs = copybot.get_downstreamed_list(
         GitRepoMock(),
+        copybot_config,
         copybot_config.downstream,
-        exclude_file_patterns=[],
         upstream_change_ids={CHANGE_ID: "deadc0de"},
     )
     assert downstreamed_revs == [REVISION, "deadc0de"]

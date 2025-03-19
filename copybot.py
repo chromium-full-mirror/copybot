@@ -81,6 +81,17 @@ def are_repos_related(
     )
 
 
+def fetch_upstream_change_ids(
+    repo: gerrit.GitRepoInterface, commit_hashes: list[str]
+) -> dict[str, str]:
+    """Fetch a mapping of commit's Change-Id's to their hashes."""
+    return {
+        change_id: rev
+        for rev in commit_hashes
+        if (change_id := gerrit.get_change_id(repo.get_commit_message(rev)))
+    }
+
+
 def find_last_merged_rev(
     repo: gerrit.GitRepoInterface,
     config: copybot_argparser.CopybotConfig,
@@ -112,6 +123,7 @@ def find_last_merged_rev(
         exclude_file_patterns=config.exclude_file_patterns,
         num=upstream.history_length,
     )
+    upstream_change_ids = fetch_upstream_change_ids(repo, upstream_hashes)
     downstream_hashes = repo.log_hashes(
         revision_range=downstream.head_sha,
         subtree=downstream.subtree,
@@ -119,13 +131,7 @@ def find_last_merged_rev(
         num=downstream.history_length,
     )
 
-    upstream_change_ids = {}
     include_change_id = are_repos_related(upstream, downstream)
-    if include_change_id:
-        for rev in upstream_hashes:
-            change_id = gerrit.get_change_id(repo.get_commit_message(rev))
-            if change_id:
-                upstream_change_ids[change_id] = rev
 
     for rev in downstream_hashes:
         commit_message = repo.get_commit_message(rev)
@@ -160,7 +166,8 @@ def get_downstreamed_list(
     repo: gerrit.GitRepoInterface,
     config: copybot_argparser.CopybotConfig,
     downstream: copybot_argparser.DownstreamConfig,
-    upstream_change_ids: dict[str, str] | None = None,
+    upstream_change_ids: dict[str, str],
+    include_change_id: bool = False,
 ) -> list[str]:
     """Find the last merged revision in a Git repo.
 
@@ -170,6 +177,8 @@ def get_downstreamed_list(
         downstream: Configuration for downstream location.
         upstream_change_ids: dictionary of upstream Change-Id's and their
             associated upstream commit hash.
+        include_change_id: Bool specifying whether or not to
+            consider Change-Ids
 
     Returns:
         The set of upstream commit hashes that have already been downstreamed.
@@ -192,13 +201,31 @@ def get_downstreamed_list(
 
         if origin_revid:
             downstreamed_revs.append(origin_revid)
-        if (
-            change_id
-            and upstream_change_ids
-            and change_id in upstream_change_ids
-        ):
+        if change_id and include_change_id and change_id in upstream_change_ids:
             downstreamed_revs.append(upstream_change_ids[change_id])
     return downstreamed_revs
+
+
+def is_copybot_job_skipped(
+    repo: gerrit.GitRepoInterface,
+    config: copybot_argparser.CopybotConfig,
+    rev: str,
+) -> bool:
+    commit_message = repo.get_commit_message(rev)
+    (
+        pseudoheaders,
+        commit_message,
+    ) = gerrit.Pseudoheaders.from_commit_message(commit_message)
+    job_name = pseudoheaders.get("Copybot-Job-Name")
+    skipped = bool(config.skip_job_names and job_name in config.skip_job_names)
+
+    if skipped:
+        logger.info(
+            "Skip %s due to Copybot-Job-Name: %s",
+            rev,
+            job_name,
+        )
+    return skipped
 
 
 def find_commits_to_copy(
@@ -243,25 +270,20 @@ def find_commits_to_copy(
     commit_files_map = {}
     skipped_files_map = {}
     copybot_skip_cls = []
-    upstream_change_ids = {}
+
     upstream_hashes = repo.log_hashes(
         revision_range=upstream.head_sha,
         subtree=upstream.subtree,
         exclude_file_patterns=config.exclude_file_patterns,
         num=upstream.history_length,
     )
-    if include_change_id:
-        for counter, rev in enumerate(upstream_hashes):
-            if counter > upstream.history_limit > 0:
-                break
-            change_id = gerrit.get_change_id(repo.get_commit_message(rev))
-            if change_id:
-                upstream_change_ids[change_id] = rev
+    upstream_change_ids = fetch_upstream_change_ids(repo, upstream_hashes)
     downstreamed_revs = get_downstreamed_list(
         repo=repo,
         config=config,
         downstream=downstream,
         upstream_change_ids=upstream_change_ids,
+        include_change_id=include_change_id,
     )
 
     counter = 0
@@ -272,22 +294,10 @@ def find_commits_to_copy(
             logger.info("Hit upstream limit of %s", upstream.history_limit)
             break
 
-        # Check if this is a filtered commit.
-        commit_message = repo.get_commit_message(rev)
-        (
-            pseudoheaders,
-            commit_message,
-        ) = gerrit.Pseudoheaders.from_commit_message(commit_message)
-        job_name = pseudoheaders.get("Copybot-Job-Name")
-        if config.skip_job_names and job_name in config.skip_job_names:
-            logger.info(
-                "Skip %s due to Copybot-Job-Name: %s",
-                rev,
-                job_name,
-            )
+        if is_copybot_job_skipped(repo, config, rev):
             continue
 
-        if not job_name and config.skip_author_emails:
+        if config.skip_author_emails:
             author_email = repo.get_author_email(rev=rev)
             if author_email in config.skip_author_emails:
                 logger.info(
@@ -332,6 +342,7 @@ def find_commits_to_copy(
 
         commit_files = repo.commit_file_list(rev)
         filtered_commit_files = []
+
         for path in commit_files:
             if not any(
                 re.fullmatch(p, path) for p in config.filter_file_patterns or []
@@ -353,7 +364,6 @@ def find_commits_to_copy(
         ]
 
         if downstream.subtree and downstream.include_paths:
-            commit_files = repo.commit_file_list(rev)
             filtered_commit_files = []
             for path in commit_files:
                 filtered_path = pathlib.Path(path).relative_to(upstream.subtree)

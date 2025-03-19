@@ -123,7 +123,7 @@ Change-Id: {CHANGE_ID}
 
     def commit_file_list(self, rev: str = "HEAD") -> List[str]:
         del rev
-        return []
+        return ["file.c"]
 
     def reword(self, *unused_args, **unused_kwargs) -> str:
         return "reworded_commit_sha"
@@ -236,7 +236,9 @@ def test_run_copybot__smoke_test(copybot_config) -> None:
         tempfile.TemporaryDirectory(".copybot") as git_dir,
         tempfile.TemporaryDirectory("_patches") as patch_dir,
     ):
-        with pytest.raises(copybot.NothingToDo):
+        with pytest.raises(
+            copybot.NothingToDo, match=r"All found changes are pending"
+        ):
             copybot.run_copybot(
                 GitRepoMock,
                 GerritMock,
@@ -269,12 +271,35 @@ def test_get_downstreamed_list(copybot_config) -> None:
     assert downstreamed_revs == [REVISION]
 
 
+def test_fetch_upstream_change_ids() -> None:
+    assert copybot.fetch_upstream_change_ids(GitRepoMock(), [REVISION]) == {
+        CHANGE_ID: REVISION
+    }
+
+
+def test_is_copybot_job_skipped(copybot_config) -> None:
+    assert not copybot.is_copybot_job_skipped(
+        GitRepoMock(), copybot_config, REVISION
+    )
+
+
+def test_find_commits_to_copy(copybot_config):
+    assert copybot.find_commits_to_copy(
+        GitRepoMock(),
+        copybot_config,
+        copybot_config.upstream,
+        copybot_config.downstream,
+        PENDING_CHANGES,
+    ) == ([REVISION], {REVISION: ["file.c"]}, {REVISION: []}, [], True)
+
+
 def test_get_downstreamed_list__mapped_changed_id(copybot_config) -> None:
     downstreamed_revs = copybot.get_downstreamed_list(
         GitRepoMock(),
         copybot_config,
         copybot_config.downstream,
         upstream_change_ids={CHANGE_ID: "deadc0de"},
+        include_change_id=True,
     )
     assert downstreamed_revs == [REVISION, "deadc0de"]
 

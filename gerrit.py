@@ -155,6 +155,8 @@ class GerritClInfo:
 class GitRepoInterface(Protocol):
     """Interface for common Git repository actions."""
 
+    git_dir: pathlib.Path
+
     def __init__(self, git_dir: Union[str, "os.PathLike[str]"]) -> None: ...
 
     def rev_parse(self, rev: str = "HEAD") -> str: ...
@@ -222,6 +224,12 @@ class GitRepoInterface(Protocol):
         current_rev: str | None,
         subtree: Union[str, "os.PathLike[str]"] = "",
     ) -> int: ...
+
+    def add_remote(
+        self,
+        url: str,
+        name: str,
+    ) -> None: ...
 
 
 class GitRepo:
@@ -658,6 +666,13 @@ class GitRepo:
             args.append(str(subtree))
         result = self._run_git("rev-list", *args)
         return int(result.stdout.rstrip())
+
+    def add_remote(
+        self,
+        url: str,
+        name: str,
+    ) -> None:
+        self._run_git("remote", "add", name, url)
 
 
 class Pseudoheaders:

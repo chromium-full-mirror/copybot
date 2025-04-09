@@ -93,7 +93,6 @@ def fetch_upstream_change_ids(
 
 
 def find_last_merged_rev(
-    repo: gerrit.GitRepoInterface,
     config: copybot_argparser.CopybotConfig,
     upstream: copybot_argparser.UpstreamConfig,
     downstream: copybot_argparser.DownstreamConfig,
@@ -102,7 +101,6 @@ def find_last_merged_rev(
     """Find the last merged revision in a Git repo.
 
     Args:
-        repo: The GitRepo.
         config: The parsed command line arguments.
         upstream: Configuration for upstream location.
         downstream: Configuration for downstream location.
@@ -117,14 +115,16 @@ def find_last_merged_rev(
     Raises:
         ValueError: No common history could be found.
     """
-    upstream_hashes = repo.log_hashes(
+    upstream_hashes = upstream.repo.log_hashes(
         revision_range=upstream.head_sha,
         subtree=upstream.subtree,
         exclude_file_patterns=config.exclude_file_patterns,
         num=upstream.history_length,
     )
-    upstream_change_ids = fetch_upstream_change_ids(repo, upstream_hashes)
-    downstream_hashes = repo.log_hashes(
+    upstream_change_ids = fetch_upstream_change_ids(
+        upstream.repo, upstream_hashes
+    )
+    downstream_hashes = downstream.repo.log_hashes(
         revision_range=downstream.head_sha,
         subtree=downstream.subtree,
         exclude_file_patterns=config.exclude_file_patterns,
@@ -134,7 +134,7 @@ def find_last_merged_rev(
     include_change_id = are_repos_related(upstream, downstream)
 
     for rev in downstream_hashes:
-        commit_message = repo.get_commit_message(rev)
+        commit_message = downstream.repo.get_commit_message(rev)
         origin_revid = gerrit.get_origin_rev_id(commit_message)
         change_id = gerrit.get_change_id(commit_message)
         if (
@@ -163,7 +163,6 @@ def find_last_merged_rev(
 
 
 def get_downstreamed_list(
-    repo: gerrit.GitRepoInterface,
     config: copybot_argparser.CopybotConfig,
     downstream: copybot_argparser.DownstreamConfig,
     upstream_change_ids: dict[str, str],
@@ -172,7 +171,6 @@ def get_downstreamed_list(
     """Find the last merged revision in a Git repo.
 
     Args:
-        repo: The GitRepo.
         config: The parsed command line arguments.
         downstream: Configuration for downstream location.
         upstream_change_ids: dictionary of upstream Change-Id's and their
@@ -183,7 +181,7 @@ def get_downstreamed_list(
     Returns:
         The set of upstream commit hashes that have already been downstreamed.
     """
-    downstream_hashes = repo.log_hashes(
+    downstream_hashes = downstream.repo.log_hashes(
         revision_range=downstream.head_sha,
         subtree=downstream.subtree,
         exclude_file_patterns=config.exclude_file_patterns,
@@ -195,7 +193,7 @@ def get_downstreamed_list(
         if counter > downstream.history_limit > 0:
             break
 
-        commit_message = repo.get_commit_message(rev)
+        commit_message = downstream.repo.get_commit_message(rev)
         origin_revid = gerrit.get_origin_rev_id(commit_message)
         change_id = gerrit.get_change_id(commit_message)
 
@@ -207,11 +205,10 @@ def get_downstreamed_list(
 
 
 def is_copybot_job_skipped(
-    repo: gerrit.GitRepoInterface,
     config: copybot_argparser.CopybotConfig,
     rev: str,
 ) -> bool:
-    commit_message = repo.get_commit_message(rev)
+    commit_message = config.upstream.repo.get_commit_message(rev)
     (
         pseudoheaders,
         commit_message,
@@ -229,7 +226,6 @@ def is_copybot_job_skipped(
 
 
 def find_commits_to_copy(
-    repo: gerrit.GitRepoInterface,
     config: copybot_argparser.CopybotConfig,
     upstream: copybot_argparser.UpstreamConfig,
     downstream: copybot_argparser.DownstreamConfig,
@@ -242,7 +238,6 @@ def find_commits_to_copy(
     """Find the commits to copy to downstream.
 
     Args:
-        repo: The GitRepo.
         config: The parsed command line arguments.
         upstream: Configuration for upstream location.
         downstream: Configuration for downstream location.
@@ -271,15 +266,16 @@ def find_commits_to_copy(
     skipped_files_map = {}
     copybot_skip_cls = []
 
-    upstream_hashes = repo.log_hashes(
+    upstream_hashes = upstream.repo.log_hashes(
         revision_range=upstream.head_sha,
         subtree=upstream.subtree,
         exclude_file_patterns=config.exclude_file_patterns,
         num=upstream.history_length,
     )
-    upstream_change_ids = fetch_upstream_change_ids(repo, upstream_hashes)
+    upstream_change_ids = fetch_upstream_change_ids(
+        upstream.repo, upstream_hashes
+    )
     downstreamed_revs = get_downstreamed_list(
-        repo=repo,
         config=config,
         downstream=downstream,
         upstream_change_ids=upstream_change_ids,
@@ -294,11 +290,11 @@ def find_commits_to_copy(
             logger.info("Hit upstream limit of %s", upstream.history_limit)
             break
 
-        if is_copybot_job_skipped(repo, config, rev):
+        if is_copybot_job_skipped(config, rev):
             continue
 
         if config.skip_author_emails:
-            author_email = repo.get_author_email(rev=rev)
+            author_email = upstream.repo.get_author_email(rev=rev)
             if author_email in config.skip_author_emails:
                 logger.info(
                     "Skip %s due to author %s",
@@ -311,7 +307,7 @@ def find_commits_to_copy(
         # them as if they don't belong to the target repo.
         counter += 1
 
-        commit_subject = repo.get_subject(rev=rev)
+        commit_subject = upstream.repo.get_subject(rev=rev)
         if "marking set of ebuilds as stable" in commit_subject.lower():
             logger.info(
                 "Skip %s due to marking ebuilds stable in subject: %s",
@@ -340,7 +336,7 @@ def find_commits_to_copy(
                 logger.info("Skip %s because it has already merged", rev)
                 continue
 
-        commit_files = repo.commit_file_list(rev)
+        commit_files = upstream.repo.commit_file_list(rev)
         filtered_commit_files = []
 
         for path in commit_files:
@@ -393,7 +389,6 @@ def find_commits_to_copy(
 
 
 def rewrite_commit_message(
-    repo: gerrit.GitRepoInterface,
     upstream_rev: str,
     upstream: copybot_argparser.UpstreamConfig,
     downstream: copybot_argparser.DownstreamConfig,
@@ -405,7 +400,6 @@ def rewrite_commit_message(
     """Reword the commit at HEAD with appropriate metadata.
 
     Args:
-        repo: The GitRepo to operate on.
         upstream_rev: The upstream commit hash corresponding to this commit.
         upstream: Configuration for upstream location.
         downstream: Configuration for downstream location.
@@ -419,7 +413,7 @@ def rewrite_commit_message(
         * Reworded commit message
         * Updated author
     """
-    commit_message = repo.get_commit_message()
+    commit_message = downstream.repo.get_commit_message()
     if downstream.prepend_subject:
         commit_message = downstream.prepend_subject + commit_message
     if downstream.insert_into_msg:
@@ -457,13 +451,15 @@ def rewrite_commit_message(
         pseudoheaders["Change-Id"] = change_id
 
     commit_message = pseudoheaders.add_to_commit_message(commit_message)
-    orig_author = repo.get_author_email(rev=upstream_rev)
+    orig_author = upstream.repo.get_author_email(rev=upstream_rev)
     author, sym, domain = orig_author.rpartition("@")
-    orig_author_name = repo.get_author_name(rev=upstream_rev)
+    orig_author_name = upstream.repo.get_author_name(rev=upstream_rev)
     updated_author = (
         orig_author_name + "<" + author + sym + domain + "-copybot-pick" + ">"
     )
-    repo.reword(commit_message, sign_off=sign_off, update_author=updated_author)
+    downstream.repo.reword(
+        commit_message, sign_off=sign_off, update_author=updated_author
+    )
     return commit_message, updated_author
 
 
@@ -517,7 +513,7 @@ def is_server_gob(url: str) -> re.Match[str] | None:
 def fetch_repo_head_sha(
     repo: gerrit.GitRepoInterface, url: str, branch: str
 ) -> str:
-    """Fetch HEAD sha of the given repository and branch."""
+    """Fetch HEAD sha in the repository of a given remote and branch."""
     try:
         return repo.fetch(url, branch)
     except subprocess.CalledProcessError as e:
@@ -527,14 +523,13 @@ def fetch_repo_head_sha(
 
 
 def fetch_history_length(
-    repo: gerrit.GitRepoInterface,
     target: copybot_argparser.TargetConfig,
     location: str,
 ) -> int:
     """Fetch the history length from where it starts to HEAD."""
     if target.history_starts_with:
         history_length = (
-            repo.get_cl_count(
+            target.repo.get_cl_count(
                 target.history_starts_with,
                 target.head_sha,
                 target.subtree,
@@ -547,7 +542,6 @@ def fetch_history_length(
 
 
 def verify_repos_share_history_to_adjust_limits(
-    repo: gerrit.GitRepoInterface,
     config: copybot_argparser.CopybotConfig,
     pending_changes: dict[str, gerrit.GerritClInfo],
 ) -> None:
@@ -557,7 +551,6 @@ def verify_repos_share_history_to_adjust_limits(
     last_related_rev = ""
 
     last_related_rev, num_cls_to_downstream = find_last_merged_rev(
-        repo,
         config,
         config.upstream,
         config.downstream,
@@ -638,7 +631,6 @@ def find_pending_change_at_bottom_of_stack(
 
 
 def checkout_downstream_repo(
-    repo: gerrit.GitRepoInterface,
     downstream: copybot_argparser.DownstreamConfig,
     commits_to_copy: list[str],
     pending_changes: dict[str, gerrit.GerritClInfo],
@@ -657,18 +649,17 @@ def checkout_downstream_repo(
         if cl_count == len(commits_to_copy):
             raise NothingToDo("All found changes are pending")
         logger.info("Checking out the top change: %s.", pending_rev)
-        repo.fetch(
+        downstream.repo.fetch(
             downstream.url,
             pending_changes[str(pending_rev)].current_ref,
         )
-        repo.checkout("FETCH_HEAD")
+        downstream.repo.checkout("FETCH_HEAD")
     else:
         assert downstream.head_sha is not None
-        repo.checkout(downstream.head_sha)
+        downstream.repo.checkout(downstream.head_sha)
 
 
 def push_changes_to_downstream(
-    repo: gerrit.GitRepoInterface,
     config: copybot_argparser.CopybotConfig,
     downstream: copybot_argparser.DownstreamConfig,
     skip_cq: bool,
@@ -677,7 +668,7 @@ def push_changes_to_downstream(
     push_refspec = get_push_refspec(config, downstream.branch, skip_cq)
     if not config.dry_run and not config.downstream.is_local:
         try:
-            repo.push(
+            downstream.repo.push(
                 config.downstream.url,
                 push_refspec,
                 options=config.downstream.push_options,
@@ -722,7 +713,6 @@ def should_reword_pending_change(
 
 
 def commit_with_conflicts(
-    repo: gerrit.GitRepoInterface,
     config: copybot_argparser.CopybotConfig,
     patch_dir: str | "os.PathLike[str]",
     skipped_files_map: dict[str, list[str]],
@@ -738,14 +728,18 @@ def commit_with_conflicts(
         A boolean indicating if the commit was empty.
     """
     if pending_change:
-        repo.fetch(config.downstream.url, pending_changes[rev].current_ref)
+        config.downstream.repo.fetch(
+            config.downstream.url, pending_changes[rev].current_ref
+        )
         try:
-            repo.cherry_pick(rev="FETCH_HEAD", allow_conflict=True)
+            config.downstream.repo.cherry_pick(
+                rev="FETCH_HEAD", allow_conflict=True
+            )
         except gerrit.EmptyCommitError:
             return True
     else:
         try:
-            repo.cherry_pick(
+            config.downstream.repo.cherry_pick(
                 filtered_rev or rev,
                 patch_dir=patch_dir,
                 upstream_subtree=config.upstream.subtree,
@@ -761,7 +755,6 @@ def commit_with_conflicts(
             pending_changes.get(rev) or gerrit.GerritClInfo("", "", "")
         ).change_id
         rewrite_commit_message(
-            repo,
             upstream_rev=rev,
             upstream=config.upstream,
             downstream=config.downstream,
@@ -777,7 +770,6 @@ def commit_with_conflicts(
 
 
 def cherry_pick_commits_to_downstream(
-    repo: gerrit.GitRepoInterface,
     config: copybot_argparser.CopybotConfig,
     patch_dir: str | "os.PathLike[str]",
     skipped_files_map: dict[str, list[str]],
@@ -789,7 +781,6 @@ def cherry_pick_commits_to_downstream(
     """Cherry pick commits to downstream.
 
     Args:
-        repo: gerrit.GitRepoInterface instance
         config: Copybot configuration object
         patch_dir: A temporary directory to use for storing patch files.
         skipped_files_map: A mapping of commit hashes to the files that should
@@ -822,17 +813,17 @@ def cherry_pick_commits_to_downstream(
         )
         filtered_rev = None
         if skipped_files_map[rev]:
-            filtered_rev = repo.filter_commit(
+            filtered_rev = config.downstream.repo.filter_commit(
                 rev=rev, patch_dir=patch_dir, files=commit_files_map[rev]
             )
         try:
             if pending_change:
-                repo.fetch(
+                config.downstream.repo.fetch(
                     config.downstream.url, pending_changes[rev].current_ref
                 )
-                repo.cherry_pick("FETCH_HEAD")
+                config.downstream.repo.cherry_pick("FETCH_HEAD")
             else:
-                repo.cherry_pick(
+                config.downstream.repo.cherry_pick(
                     filtered_rev or rev,
                     patch_dir=patch_dir,
                     upstream_subtree=config.upstream.subtree,
@@ -867,7 +858,6 @@ def cherry_pick_commits_to_downstream(
                 logger.warning("Committing %s with conflicts", rev)
 
                 was_commit_empty = commit_with_conflicts(
-                    repo,
                     config,
                     patch_dir,
                     skipped_files_map,
@@ -889,7 +879,6 @@ def cherry_pick_commits_to_downstream(
                 pending_changes.get(rev) or gerrit.GerritClInfo("", "", "")
             ).change_id
             rewrite_commit_message(
-                repo,
                 upstream_rev=rev,
                 upstream=config.upstream,
                 downstream=config.downstream,
@@ -898,7 +887,7 @@ def cherry_pick_commits_to_downstream(
                 sign_off=config.add_signed_off_by,
                 additional_pseudoheaders=config.downstream.add_pseudoheaders,
             )
-        current_change = repo.log(num=1, fmt="%H")
+        current_change = config.downstream.repo.log(num=1, fmt="%H")
         logger.info("Revision %s cherry-picked as %s", rev, current_change)
     return conflicted_revs, empty_revs, skipped_revs
 
@@ -956,25 +945,51 @@ def log_unapplied_commits(
     log_unapplied_commits_with_conflicts(repo, conflicted_revs)
 
 
+def fetch_all_targets_head_from_remote(
+    config: copybot_argparser.CopybotConfig,
+) -> None:
+    """Fetch config targets head based on the given remote url & branch."""
+    # Fetch upstream
+    config.upstream.repo.add_remote(
+        config.upstream.url, config.upstream.remote_name
+    )
+    config.upstream.head_sha = fetch_repo_head_sha(
+        config.upstream.repo,
+        config.upstream.remote_name,
+        config.upstream.branch,
+    )
+    # Fetch downstream
+    config.downstream.repo.add_remote(
+        config.downstream.url, config.downstream.remote_name
+    )
+    config.downstream.head_sha = fetch_repo_head_sha(
+        config.downstream.repo,
+        config.downstream.remote_name,
+        config.downstream.branch,
+    )
+    # Fetch upstream contents in downstream repository
+    config.downstream.repo.add_remote(
+        str(config.upstream.repo.git_dir), config.upstream.remote_name
+    )
+    fetch_repo_head_sha(
+        config.downstream.repo,
+        config.upstream.remote_name,
+        f"{config.upstream.remote_name}/{config.upstream.branch}",
+    )
+
+
 def run_copybot(
-    GitRepoCls: type[gerrit.GitRepoInterface],
     GerritCls: type[gerrit.GerritInterface],
     config: copybot_argparser.CopybotConfig,
-    git_dir: str | "os.PathLike[str]",
     patch_dir: str | "os.PathLike[str]",
 ) -> None:
     """Run copybot.
 
     Args:
-        GitRepoCls: A class implementing GitRepoInterface interface.
         GerritCls: A class implementing GerritInterface interface.
         config: The parsed command line arguments.
-        git_dir: A temporary or local directory to use for Git operations.
         patch_dir: A temporary directory to use for storing patch files.
     """
-    if config.downstream.is_local:
-        git_dir = config.downstream.url
-
     pending_changes: dict[str, gerrit.GerritClInfo] = {}
     abandoned_changes: dict[str, gerrit.GerritClInfo] = {}
     gerrit_inst: gerrit.GerritInterface | None = None
@@ -997,21 +1012,17 @@ def run_copybot(
             len(pending_changes),
             len(abandoned_changes),
         )
-    repo = GitRepoCls(git_dir)
-    config.upstream.head_sha = fetch_repo_head_sha(
-        repo, config.upstream.url, config.upstream.branch
-    )
-    config.downstream.head_sha = fetch_repo_head_sha(
-        repo, config.downstream.url, config.downstream.branch
-    )
+
+    fetch_all_targets_head_from_remote(config)
+
     config.upstream.history_length = fetch_history_length(
-        repo, config.upstream, "Upstream"
+        config.upstream, "Upstream"
     )
     config.downstream.history_length = fetch_history_length(
-        repo, config.upstream, "Downstream"
+        config.upstream, "Downstream"
     )
 
-    verify_repos_share_history_to_adjust_limits(repo, config, pending_changes)
+    verify_repos_share_history_to_adjust_limits(config, pending_changes)
 
     commit_files_map: dict[str, list[str]] = {}
     skipped_files_map: dict[str, list[str]] = {}
@@ -1023,7 +1034,6 @@ def run_copybot(
         copybot_skip_cls,
         pending_to_submit,
     ) = find_commits_to_copy(
-        repo,
         config,
         config.upstream,
         config.downstream,
@@ -1051,7 +1061,6 @@ def run_copybot(
     )
 
     checkout_downstream_repo(
-        repo,
         config.downstream,
         commits_to_copy,
         pending_changes,
@@ -1067,7 +1076,6 @@ def run_copybot(
         empty_revs,
         skipped_revs,
     ) = cherry_pick_commits_to_downstream(
-        repo,
         config,
         patch_dir,
         skipped_files_map,
@@ -1077,14 +1085,14 @@ def run_copybot(
         pending_changes,
     )
 
-    if repo.rev_parse() == config.downstream.head_sha:
+    if config.downstream.repo.rev_parse() == config.downstream.head_sha:
         logger.info("Nothing to push!")
     else:
         skip_cq = any(conflicted_revs) or pending_to_submit
-        push_changes_to_downstream(repo, config, config.downstream, skip_cq)
+        push_changes_to_downstream(config, config.downstream, skip_cq)
 
     log_unapplied_commits(
-        repo,
+        config.upstream.repo,
         empty_revs,
         skipped_revs,
         conflicted_revs,
@@ -1111,35 +1119,27 @@ def write_json_error(path: pathlib.Path, err: Exception | None) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    config = copybot_argparser.parse_copybot_config(argv)
     logging.basicConfig(
         format="%(asctime)s %(levelname)s: %(message)s",
         level=logging.INFO,
     )
+    with (
+        tempfile.TemporaryDirectory(".copybot") as git_root_dir,
+        tempfile.TemporaryDirectory("_patches") as patch_dir,
+    ):
+        config = copybot_argparser.parse_copybot_config(git_root_dir, argv)
 
-    if 0 < config.downstream.history_limit < config.upstream.history_limit:
-        logger.warning(
-            "Using a lower downstream limit than upstream limit may cause"
-            " previously downstreamed changes to be chosen again."
-        )
-
-    err = None
-    try:
-        with (
-            tempfile.TemporaryDirectory(".copybot") as git_dir,
-            tempfile.TemporaryDirectory("_patches") as patch_dir,
-        ):
-            run_copybot(
-                gerrit.GitRepo, gerrit.Gerrit, config, git_dir, patch_dir
-            )
-    except NothingToDo as e:
-        logger.info("%s. Nothing to do!", str(e))
-    except Exception as e:
-        err = e
-        raise
-    finally:
-        if config.json_out:
-            write_json_error(config.json_out, err)
+        err = None
+        try:
+            run_copybot(gerrit.Gerrit, config, patch_dir)
+        except NothingToDo as e:
+            logger.info("%s. Nothing to do!", str(e))
+        except Exception as e:
+            err = e
+            raise
+        finally:
+            if config.json_out:
+                write_json_error(config.json_out, err)
 
 
 if __name__ == "__main__":

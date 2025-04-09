@@ -34,6 +34,8 @@ def get_default_copybot_config() -> copybot_argparser.CopybotConfig:
         subtree="",
         head_sha=REVISION,
         history_length=0,
+        repo=GitRepoMock(),
+        remote_name="upstream",
     )
     downstream_config = copybot_argparser.DownstreamConfig(
         history_limit=250,
@@ -55,6 +57,8 @@ def get_default_copybot_config() -> copybot_argparser.CopybotConfig:
         include_paths=[],
         add_pseudoheaders=[],
         is_local=False,
+        repo=GitRepoMock(),
+        remote_name="downstream",
     )
     copybot_config = copybot_argparser.CopybotConfig(
         topic="copybot",
@@ -78,7 +82,7 @@ class GitRepoMock:
     """GitRepo mock for testing purposes."""
 
     def __init__(self, git_dir: Union[str, "os.PathLike[str]"] = "") -> None:
-        self.git_dir = git_dir
+        self.git_dir = pathlib.Path(git_dir)
 
     def rev_parse(self, rev: str = "HEAD") -> str:
         del rev
@@ -148,6 +152,14 @@ Change-Id: {CHANGE_ID}
     ) -> int:
         return 1
 
+    def add_remote(
+        self,
+        url: str,
+        name: str,
+    ) -> None:
+        del url
+        del name
+
 
 class GerritMock:
     """Gerrit mock for testing purposes."""
@@ -205,6 +217,7 @@ def test_write_json_error(tmp_path, exception, expected):
     assert json.loads(err_out.read_text()) == expected
 
 
+@mock.patch("gerrit.GitRepo", GitRepoMock)
 def test_main_raise_error(tmp_path):
     err_out = tmp_path / "err.json"
     with mock.patch(
@@ -232,18 +245,13 @@ def copybot_config_fixture():
 
 
 def test_run_copybot__smoke_test(copybot_config) -> None:
-    with (
-        tempfile.TemporaryDirectory(".copybot") as git_dir,
-        tempfile.TemporaryDirectory("_patches") as patch_dir,
-    ):
+    with (tempfile.TemporaryDirectory("_patches") as patch_dir,):
         with pytest.raises(
             copybot.NothingToDo, match=r"All found changes are pending"
         ):
             copybot.run_copybot(
-                GitRepoMock,
                 GerritMock,
                 copybot_config,
-                git_dir,
                 patch_dir,
             )
 
@@ -263,7 +271,6 @@ def test_are_repos_related(copybot_config) -> None:
 
 def test_get_downstreamed_list(copybot_config) -> None:
     downstreamed_revs = copybot.get_downstreamed_list(
-        GitRepoMock(),
         copybot_config,
         copybot_config.downstream,
         upstream_change_ids={},
@@ -278,14 +285,11 @@ def test_fetch_upstream_change_ids() -> None:
 
 
 def test_is_copybot_job_skipped(copybot_config) -> None:
-    assert not copybot.is_copybot_job_skipped(
-        GitRepoMock(), copybot_config, REVISION
-    )
+    assert not copybot.is_copybot_job_skipped(copybot_config, REVISION)
 
 
 def test_find_commits_to_copy(copybot_config):
     assert copybot.find_commits_to_copy(
-        GitRepoMock(),
         copybot_config,
         copybot_config.upstream,
         copybot_config.downstream,
@@ -295,7 +299,6 @@ def test_find_commits_to_copy(copybot_config):
 
 def test_get_downstreamed_list__mapped_changed_id(copybot_config) -> None:
     downstreamed_revs = copybot.get_downstreamed_list(
-        GitRepoMock(),
         copybot_config,
         copybot_config.downstream,
         upstream_change_ids={CHANGE_ID: "deadc0de"},
@@ -306,7 +309,6 @@ def test_get_downstreamed_list__mapped_changed_id(copybot_config) -> None:
 
 def test_rewrite_commit_message(copybot_config) -> None:
     reworded_message, updated_author = copybot.rewrite_commit_message(
-        GitRepoMock(),
         REVISION,
         copybot_config.upstream,
         copybot_config.downstream,
@@ -343,9 +345,7 @@ def test_is_server_gob(copybot_config) -> None:
 def test_fetch_history_length(copybot_config) -> None:
     cl_count = 1
     assert (
-        copybot.fetch_history_length(
-            GitRepoMock(), copybot_config.downstream, "location"
-        )
+        copybot.fetch_history_length(copybot_config.downstream, "location")
         == cl_count + 1
     )
 
@@ -362,7 +362,6 @@ def test_find_pending_change_at_bottom_of_stack():
 def test_checkout_downstream_repo__all_pending(copybot_config) -> None:
     with pytest.raises(copybot.NothingToDo):
         copybot.checkout_downstream_repo(
-            GitRepoMock(),
             copybot_config.downstream,
             commits_to_copy=[REVISION],
             pending_changes=PENDING_CHANGES,
@@ -376,7 +375,6 @@ def test_checkout_downstream_repo_fetches_from_repo(
     repo_fetch, copybot_config
 ) -> None:
     copybot.checkout_downstream_repo(
-        GitRepoMock(),
         copybot_config.downstream,
         commits_to_copy=[REVISION],
         pending_changes=PENDING_CHANGES,
@@ -389,7 +387,6 @@ def test_checkout_downstream_repo_fetches_from_repo(
 @mock.patch.object(GitRepoMock, "push")
 def test_push_changes_to_downstream(repo_push, copybot_config) -> None:
     copybot.push_changes_to_downstream(
-        GitRepoMock(),
         copybot_config,
         copybot_config.downstream,
         skip_cq=False,

@@ -8,15 +8,19 @@ Used for generating a common config to use across different downstream projects.
 """
 
 import dataclasses
+import logging
 import os
 import pathlib
 import re
-from typing import Any
+from typing import Any, Union
 import urllib
 import urllib.parse
 
 import configargparse  # type: ignore[import] # pylint: disable=import-error
 import gerrit
+
+
+logger = logging.getLogger(__name__)
 
 
 def parse_insert_into_msg(insert_into_msg: list[str]) -> dict[int, str]:
@@ -76,6 +80,10 @@ class TargetConfig:
     # Number of CLs to consider as a part of the upstream history.
     # 0 means unlimited
     history_length: int
+    repo: gerrit.GitRepoInterface
+    # Custom name that will be set to the `url` remote. Must be unique as it
+    # will be used across targets
+    remote_name: str
 
 
 @dataclasses.dataclass
@@ -128,7 +136,9 @@ class CopybotConfig:
     upstream: UpstreamConfig
 
 
-def parse_copybot_config(argv: list[str] | None = None) -> CopybotConfig:
+def parse_copybot_config(
+    git_root_dir: Union[str, "os.PathLike[str]"], argv: list[str] | None = None
+) -> CopybotConfig:
     """The entry point to the program."""
     parser = configargparse.ArgumentParser(
         description="CopyBot",
@@ -339,6 +349,20 @@ def parse_copybot_config(argv: list[str] | None = None) -> CopybotConfig:
     filter_file_patterns = [
         re.compile(str(pattern)) for pattern in opts.exclude_file_patterns
     ]
+    downstream_remote_name = "downstream"
+    upstream_remote_name = "upstream"
+
+    if downstream_is_local:
+        downstream_git_dir = downstream_url
+    else:
+        downstream_git_dir = os.path.join(git_root_dir, downstream_remote_name)
+        os.makedirs(downstream_git_dir)
+
+    downstream_repo = gerrit.GitRepo(downstream_git_dir)
+
+    upstream_git_dir = os.path.join(git_root_dir, upstream_remote_name)
+    os.makedirs(upstream_git_dir)
+    upstream_repo = gerrit.GitRepo(upstream_git_dir)
 
     downstream_config = DownstreamConfig(
         labels=opts.labels,
@@ -360,6 +384,8 @@ def parse_copybot_config(argv: list[str] | None = None) -> CopybotConfig:
         is_local=downstream_is_local,
         head_sha=None,
         history_length=0,
+        repo=downstream_repo,
+        remote_name=downstream_remote_name,
     )
     upstream_config = UpstreamConfig(
         url=upstream_url,
@@ -369,7 +395,12 @@ def parse_copybot_config(argv: list[str] | None = None) -> CopybotConfig:
         history_starts_with=opts.upstream_history_starts_with,
         head_sha=None,
         history_length=0,
+        repo=upstream_repo,
+        remote_name=upstream_remote_name,
     )
+    assert (
+        downstream_config.remote_name != upstream_config.remote_name
+    ), "Remote names must be unique across targets"
     copybot_config = CopybotConfig(
         topic=opts.topic,
         json_out=opts.json_out,
@@ -387,5 +418,11 @@ def parse_copybot_config(argv: list[str] | None = None) -> CopybotConfig:
         downstream=downstream_config,
         upstream=upstream_config,
     )
+
+    if 0 < downstream_config.history_limit < upstream_config.history_limit:
+        logger.warning(
+            "Using a lower downstream limit than upstream limit may cause"
+            " previously downstreamed changes to be chosen again."
+        )
 
     return copybot_config

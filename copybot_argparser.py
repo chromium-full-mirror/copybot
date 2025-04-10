@@ -132,7 +132,7 @@ class CopybotConfig:
     skip_job_names: list[str]
     # A list of emails of authors to not copy CLs from.
     skip_author_emails: list[str]
-    downstream: DownstreamConfig
+    downstreams: list[DownstreamConfig]
     upstream: UpstreamConfig
 
 
@@ -364,29 +364,31 @@ def parse_copybot_config(
     os.makedirs(upstream_git_dir)
     upstream_repo = gerrit.GitRepo(upstream_git_dir)
 
-    downstream_config = DownstreamConfig(
-        labels=opts.labels,
-        reviewers=opts.reviewers,
-        ccs=opts.ccs,
-        push_options=opts.push_options,
-        hashtags=opts.hashtags,
-        prepend_subject=opts.prepend_subject,
-        insert_into_msg=parse_insert_into_msg(opts.insert_into_msg),
-        keep_pseudoheaders=list(opts.keep_pseudoheaders),
-        limit=opts.limit,
-        history_limit=opts.downstream_history_limit,
-        include_paths=opts.include_downstream,
-        add_pseudoheaders=opts.add_pseudoheaders,
-        history_starts_with=opts.downstream_history_starts_with,
-        url=downstream_url,
-        branch=downstream_branch,
-        subtree=downstream_subtree,
-        is_local=downstream_is_local,
-        head_sha=None,
-        history_length=0,
-        repo=downstream_repo,
-        remote_name=downstream_remote_name,
-    )
+    downstream_configs = [
+        DownstreamConfig(
+            labels=opts.labels,
+            reviewers=opts.reviewers,
+            ccs=opts.ccs,
+            push_options=opts.push_options,
+            hashtags=opts.hashtags,
+            prepend_subject=opts.prepend_subject,
+            insert_into_msg=parse_insert_into_msg(opts.insert_into_msg),
+            keep_pseudoheaders=list(opts.keep_pseudoheaders),
+            limit=opts.limit,
+            history_limit=opts.downstream_history_limit,
+            include_paths=opts.include_downstream,
+            add_pseudoheaders=opts.add_pseudoheaders,
+            history_starts_with=opts.downstream_history_starts_with,
+            url=downstream_url,
+            branch=downstream_branch,
+            subtree=downstream_subtree,
+            is_local=downstream_is_local,
+            head_sha=None,
+            history_length=0,
+            repo=downstream_repo,
+            remote_name=downstream_remote_name,
+        )
+    ]
     upstream_config = UpstreamConfig(
         url=upstream_url,
         branch=upstream_branch,
@@ -398,9 +400,12 @@ def parse_copybot_config(
         repo=upstream_repo,
         remote_name=upstream_remote_name,
     )
-    assert (
-        downstream_config.remote_name != upstream_config.remote_name
-    ), "Remote names must be unique across targets"
+    all_remote_names = [upstream_config.remote_name] + [
+        dc.remote_name for dc in downstream_configs
+    ]
+    if len(all_remote_names) != len(set(all_remote_names)):
+        raise ValueError("Remote names must be unique across targets")
+
     copybot_config = CopybotConfig(
         topic=opts.topic,
         json_out=opts.json_out,
@@ -415,14 +420,18 @@ def parse_copybot_config(
         filter_changes=opts.filter_changes,
         skip_job_names=opts.skip_job_name,
         skip_author_emails=opts.skip_author_email,
-        downstream=downstream_config,
+        downstreams=downstream_configs,
         upstream=upstream_config,
     )
 
-    if 0 < downstream_config.history_limit < upstream_config.history_limit:
-        logger.warning(
-            "Using a lower downstream limit than upstream limit may cause"
-            " previously downstreamed changes to be chosen again."
-        )
+    for downstream_config in downstream_configs:
+        if 0 < downstream_config.history_limit < upstream_config.history_limit:
+            logger.warning(
+                "Using a lower downstream limit than upstream limit may cause"
+                " previously downstreamed changes to be chosen again. "
+                "Downstream: %s, Upstream: %s",
+                downstream_config.remote_name,
+                upstream_config.remote_name,
+            )
 
     return copybot_config

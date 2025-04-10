@@ -72,7 +72,7 @@ def get_default_copybot_config() -> copybot_argparser.CopybotConfig:
         filter_changes=True,
         skip_job_names=[],
         skip_author_emails=[],
-        downstream=downstream_config,
+        downstreams=[downstream_config],
         upstream=upstream_config,
     )
     return copybot_config
@@ -265,14 +265,14 @@ def test_parse_insert_into_msg():
 
 def test_are_repos_related(copybot_config) -> None:
     assert copybot.are_repos_related(
-        copybot_config.upstream, copybot_config.downstream
+        copybot_config.upstream, copybot_config.downstreams[0]
     )
 
 
 def test_get_downstreamed_list(copybot_config) -> None:
     downstreamed_revs = copybot.get_downstreamed_list(
         copybot_config,
-        copybot_config.downstream,
+        copybot_config.downstreams[0],
         upstream_change_ids={},
     )
     assert downstreamed_revs == [REVISION]
@@ -292,7 +292,7 @@ def test_find_commits_to_copy(copybot_config):
     assert copybot.find_commits_to_copy(
         copybot_config,
         copybot_config.upstream,
-        copybot_config.downstream,
+        copybot_config.downstreams[0],
         PENDING_CHANGES,
     ) == ([REVISION], {REVISION: ["file.c"]}, {REVISION: []}, [], True)
 
@@ -300,7 +300,7 @@ def test_find_commits_to_copy(copybot_config):
 def test_get_downstreamed_list__mapped_changed_id(copybot_config) -> None:
     downstreamed_revs = copybot.get_downstreamed_list(
         copybot_config,
-        copybot_config.downstream,
+        copybot_config.downstreams[0],
         upstream_change_ids={CHANGE_ID: "deadc0de"},
         include_change_id=True,
     )
@@ -311,7 +311,7 @@ def test_rewrite_commit_message(copybot_config) -> None:
     reworded_message, updated_author = copybot.rewrite_commit_message(
         REVISION,
         copybot_config.upstream,
-        copybot_config.downstream,
+        copybot_config.downstreams[0],
         change_id=CHANGE_ID,
     )
     expected_commit_message = f"""Commit message
@@ -325,9 +325,9 @@ GitOrigin-RevId: {REVISION}
     assert updated_author == expected_author
 
 
-def test_get_push_refspect(copybot_config) -> None:
+def test_get_push_refspec(copybot_config) -> None:
     assert copybot.get_push_refspec(
-        copybot_config, copybot_config.downstream.branch, skip_cq=False
+        copybot_config, copybot_config.downstreams[0], skip_cq=False
     ) == (
         "HEAD:refs/for/main%ready,l=gerrit_label,"
         "cc=guy.fieri@example.com,t=copybot,t=copybot_tag"
@@ -335,7 +335,7 @@ def test_get_push_refspect(copybot_config) -> None:
 
 
 def test_is_server_gob(copybot_config) -> None:
-    assert copybot.is_server_gob(copybot_config.downstream.url)
+    assert copybot.is_server_gob(copybot_config.downstreams[0].url)
     assert copybot.is_server_gob(copybot_config.upstream.url)
     assert not copybot.is_server_gob(
         "https://github.com/coq-community/coq-tricks"
@@ -345,7 +345,7 @@ def test_is_server_gob(copybot_config) -> None:
 def test_fetch_history_length(copybot_config) -> None:
     cl_count = 1
     assert (
-        copybot.fetch_history_length(copybot_config.downstream, "location")
+        copybot.fetch_history_length(copybot_config.downstreams[0], "location")
         == cl_count + 1
     )
 
@@ -362,7 +362,7 @@ def test_find_pending_change_at_bottom_of_stack():
 def test_checkout_downstream_repo__all_pending(copybot_config) -> None:
     with pytest.raises(copybot.NothingToDo):
         copybot.checkout_downstream_repo(
-            copybot_config.downstream,
+            copybot_config.downstreams[0],
             commits_to_copy=[REVISION],
             pending_changes=PENDING_CHANGES,
             cl_count=1,
@@ -375,20 +375,20 @@ def test_checkout_downstream_repo_fetches_from_repo(
     repo_fetch, copybot_config
 ) -> None:
     copybot.checkout_downstream_repo(
-        copybot_config.downstream,
+        copybot_config.downstreams[0],
         commits_to_copy=[REVISION],
         pending_changes=PENDING_CHANGES,
         cl_count=2,
         pending_rev=REVISION,
     )
-    repo_fetch.assert_called_with(copybot_config.downstream.url, "REF")
+    repo_fetch.assert_called_with(copybot_config.downstreams[0].url, "REF")
 
 
 @mock.patch.object(GitRepoMock, "push")
 def test_push_changes_to_downstream(repo_push, copybot_config) -> None:
     copybot.push_changes_to_downstream(
         copybot_config,
-        copybot_config.downstream,
+        copybot_config.downstreams[0],
         skip_cq=False,
     )
     push_refspec = (
@@ -396,7 +396,7 @@ def test_push_changes_to_downstream(repo_push, copybot_config) -> None:
         "cc=guy.fieri@example.com,t=copybot,t=copybot_tag"
     )
     repo_push.assert_called_with(
-        copybot_config.downstream.url,
+        copybot_config.downstreams[0].url,
         push_refspec,
-        options=copybot_config.downstream.push_options,
+        options=copybot_config.downstreams[0].push_options,
     )

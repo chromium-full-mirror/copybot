@@ -105,6 +105,9 @@ class DownstreamConfig(TargetConfig):
     include_paths: list[str | os.PathLike[str]]
     add_pseudoheaders: list[str]
     is_local: bool
+    # Kernel CL Dispatcher config to mark until what SHA should the history
+    # be traversed when looking for commits mentioned in FIXES tag.
+    cl_dispatcher_history_starts_with: str
 
 
 @dataclasses.dataclass
@@ -310,6 +313,12 @@ def parse_copybot_config(
         default="",
     )
     parser.add_argument(
+        "--downstream-cl-dispatcher-history-starts-with",
+        help="Kernel CL Dispatcher config to mark until what SHA should the "
+        "history be traversed when looking for commits mentioned in FIXES tag",
+        default="",
+    )
+    parser.add_argument(
         "--upstream-url",
         help="Upstream Git URL, optionally with a branch and subtree separated"
         " by colons",
@@ -387,6 +396,9 @@ def parse_copybot_config(
             history_length=0,
             repo=downstream_repo,
             remote_name=downstream_remote_name,
+            cl_dispatcher_history_starts_with=(
+                opts.downstream_cl_dispatcher_history_starts_with
+            ),
         )
     ]
     upstream_config = UpstreamConfig(

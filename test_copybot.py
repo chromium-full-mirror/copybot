@@ -25,8 +25,8 @@ PENDING_CHANGES = {
 }
 
 
-def get_default_copybot_config() -> copybot_argparser.CopybotConfig:
-    upstream_config = copybot_argparser.UpstreamConfig(
+def cons_default_upstream_config() -> copybot_argparser.UpstreamConfig:
+    return copybot_argparser.UpstreamConfig(
         history_limit=250,
         history_starts_with="",
         url="https://chromium.googlesource.com/chromiumos/a",
@@ -37,7 +37,12 @@ def get_default_copybot_config() -> copybot_argparser.CopybotConfig:
         repo=GitRepoMock(),
         remote_name="upstream",
     )
-    downstream_config = copybot_argparser.DownstreamConfig(
+
+
+def cons_default_downstream_config(
+    remote_name: str = "downstream",
+) -> copybot_argparser.DownstreamConfig:
+    return copybot_argparser.DownstreamConfig(
         history_limit=250,
         history_starts_with=REVISION,
         url="https://chromium.googlesource.com/chromiumos/b",
@@ -58,8 +63,14 @@ def get_default_copybot_config() -> copybot_argparser.CopybotConfig:
         add_pseudoheaders=[],
         is_local=False,
         repo=GitRepoMock(),
-        remote_name="downstream",
+        remote_name=remote_name,
+        cl_dispatcher_history_starts_with="219d54332a09e",
     )
+
+
+def cons_default_copybot_config() -> copybot_argparser.CopybotConfig:
+    upstream_config = cons_default_upstream_config()
+    downstream_config = cons_default_downstream_config()
     copybot_config = copybot_argparser.CopybotConfig(
         topic="copybot",
         json_out=pathlib.Path("json_out"),
@@ -96,6 +107,9 @@ class GitRepoMock:
 
     def log(self, *unused_args, **unused_kwargs) -> str:
         return "log_result"
+
+    def log_raw(self, *unused_args) -> str:
+        return "raw_log_result"
 
     def log_hashes(
         self,
@@ -241,7 +255,7 @@ def test_main_raise_error(tmp_path):
 
 @pytest.fixture(name="copybot_config")
 def copybot_config_fixture():
-    return get_default_copybot_config()
+    return cons_default_copybot_config()
 
 
 def test_run_copybot__smoke_test(copybot_config) -> None:

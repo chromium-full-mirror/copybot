@@ -174,6 +174,8 @@ class GitRepoInterface(Protocol):
         exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
     ) -> str: ...
 
+    def log_raw(self, *args) -> str: ...
+
     def log_hashes(
         self,
         revision_range: str | None = "HEAD",
@@ -309,6 +311,11 @@ class GitRepo:
         if subtree:
             extra_args.append(str(subtree))
         result = self._run_git("log", revision_range, *extra_args)
+        return result.stdout.strip()
+
+    def log_raw(self, *args) -> str:
+        """Raw version of git log simply passing all provided args."""
+        result = self._run_git("log", *args)
         return result.stdout.strip()
 
     def log_hashes(
@@ -675,6 +682,14 @@ class GitRepo:
         self._run_git("remote", "add", name, url)
 
 
+def _pseudoheader_pattern(separator: str = ":"):
+    # Matches lines that look like a "header" (the conventional footer
+    # lines in a commit message).
+    return re.compile(
+        rf"^(?{separator}[A-Za-z0-9]+-)*[A-Za-z0-9]+{separator}\s*"
+    )
+
+
 class Pseudoheaders:
     """Dictionary-like object for the pseudoheaders from a commit message.
 
@@ -685,10 +700,6 @@ class Pseudoheaders:
     command parses them.
     """
 
-    # Matches lines that look like a "header" (the conventional footer
-    # lines in a commit message).
-    _PSEUDOHEADER_PATTERN = re.compile(r"^(?:[A-Za-z0-9]+-)*[A-Za-z0-9]+:\s+")
-
     def __init__(self, header_list: Iterable[Tuple[str, str]] = ()) -> None:
         if header_list:
             self._header_list = list(header_list)
@@ -697,7 +708,7 @@ class Pseudoheaders:
 
     @classmethod
     def from_commit_message(
-        cls, commit_message: str, offset: int = 1
+        cls, commit_message: str, offset: int = 1, separator: str = ":"
     ) -> Tuple[Pseudoheaders, str]:
         """Parse pseudoheaders from a commit message.
 
@@ -705,6 +716,7 @@ class Pseudoheaders:
             commit_message: commit message from git log.
             offset: which line to start processing the message from.
                 Lines less than the offset will not be altered.
+            separator: character used to separate tag from value
 
         Returns:
             Two values, a Pseudoheaders dictionary, and the commit
@@ -715,10 +727,10 @@ class Pseudoheaders:
 
         header_list = []
         for i, line in enumerate(message_lines):
-            if i < offset or not cls._PSEUDOHEADER_PATTERN.match(line):
+            if i < offset or not _pseudoheader_pattern(separator).match(line):
                 rewritten_message.append(line)
             else:
-                name, _, value = line.partition(":")
+                name, _, value = line.partition(separator)
                 header_list.append((name, value.strip()))
 
         return cls(header_list), "".join(

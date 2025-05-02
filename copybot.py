@@ -42,6 +42,7 @@ Usage: copybot.py [options...] upstream_repo:branch downstream_repo:branch
 from __future__ import annotations
 
 from collections.abc import Iterable
+import itertools
 import json
 import logging
 import os
@@ -82,12 +83,15 @@ def are_repos_related(
 
 
 def fetch_upstream_change_ids(
-    repo: gerrit.GitRepoInterface, commit_hashes: list[str]
+    repo: gerrit.GitRepoInterface, commit_hashes: list[str], limit: int = -1
 ) -> dict[str, str]:
     """Fetch a mapping of commit's Change-Id's to their hashes."""
+    iterable = (
+        commit_hashes if limit < 0 else itertools.islice(commit_hashes, limit)
+    )
     return {
         change_id: rev
-        for rev in commit_hashes
+        for rev in iterable
         if (change_id := gerrit.get_change_id(repo.get_commit_message(rev)))
     }
 
@@ -122,7 +126,7 @@ def find_last_merged_rev(
         num=upstream.history_length,
     )
     upstream_change_ids = fetch_upstream_change_ids(
-        upstream.repo, upstream_hashes
+        upstream.repo, upstream_hashes, upstream.history_limit
     )
     downstream_hashes = downstream.repo.log_hashes(
         revision_range=downstream.head_sha,
@@ -273,7 +277,7 @@ def find_commits_to_copy(
         num=upstream.history_length,
     )
     upstream_change_ids = fetch_upstream_change_ids(
-        upstream.repo, upstream_hashes
+        upstream.repo, upstream_hashes, upstream.history_limit
     )
     downstreamed_revs = get_downstreamed_list(
         config=config,

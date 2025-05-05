@@ -1025,7 +1025,7 @@ def run_copybot(
             config.upstream, "Upstream"
         )
         downstream.history_length = fetch_history_length(
-            config.upstream, "Downstream"
+            downstream, "Downstream"
         )
 
         verify_repos_share_history_to_adjust_limits(

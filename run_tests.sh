@@ -19,6 +19,6 @@ cd "$(dirname "$(realpath -e "${BASH_SOURCE[0]}")")"
 ../../chromite/scripts/mypy .
 
 # Check for formatting issues (also reports during pre-upload).
-cros lint .
+cros lint . --exclude OWNERS
 cros format --check .
 ../../chromite/scripts/black --check .

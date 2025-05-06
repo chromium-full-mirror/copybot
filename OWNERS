@@ -2,3 +2,6 @@
 copybot-maintainers@google.com
 
 include chromiumos/owners:v1:/firmware/OWNERS.copybot
+
+# ChromeOS Prod
+chromeos-ci-prod@chromeos-bot.iam.gserviceaccount.com #{LAST_RESORT_SUGGESTION}

@@ -123,6 +123,7 @@ class UpstreamConfig(TargetConfig):
 class CopybotConfig:
     """Options that change Copybot functionality."""
 
+    config_file_path: str
     topic: str
     json_out: pathlib.Path
     dry_run: bool
@@ -165,10 +166,10 @@ def generate_config(argv: Optional[List[str]] = None) -> None:
     os.makedirs(os.path.dirname(opts.generate_config), exist_ok=True)
     with open(opts.generate_config, "w", encoding="utf-8") as outfile:
         outfile.write("[copybot]\n")
+        exclude_args = ["config", "generate_config", "dry_run"]
         for name, value in vars(opts).items():
             if (
-                name == "generate_config"
-                or name == "config"
+                name in exclude_args
                 or not value
                 or value == dest_to_default[name]
             ):
@@ -489,6 +490,7 @@ def parse_copybot_config(
         downstreams=downstream_configs,
         upstream=upstream_config,
         generate_config=opts.generate_config,
+        config_file_path=opts.config,
     )
 
     for downstream_config in downstream_configs:

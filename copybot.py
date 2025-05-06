@@ -101,7 +101,7 @@ def find_last_merged_rev(
     upstream: copybot_argparser.UpstreamConfig,
     downstream: copybot_argparser.DownstreamConfig,
     pending_changes: dict[str, gerrit.GerritClInfo] | None = None,
-) -> tuple[str, int]:
+) -> tuple[str, str, int]:
     """Find the last merged revision in a Git repo.
 
     Args:
@@ -111,10 +111,11 @@ def find_last_merged_rev(
         pending_changes: Changes pending in downstream repo.
 
     Returns:
-        Two values,
+        Three values,
             1. A commit hash of the last merged revision by CopyBot, or the
                 first common commit hash in both logs.
-            2. The number of CLs which are eligible to be downstreamed.
+            2. The downstream commit hash
+            3. The number of CLs which are eligible to be downstreamed.
 
     Raises:
         ValueError: No common history could be found.
@@ -153,12 +154,12 @@ def find_last_merged_rev(
                 counter = upstream_hashes.index(origin_revid or rev)
             else:
                 continue
-            return origin_revid or rev, counter
+            return origin_revid or rev, rev, counter
 
     for rev in upstream_hashes:
         if pending_changes and rev in pending_changes:
             counter = upstream_hashes.index(rev)
-            return rev, counter
+            return rev, rev, counter
 
     raise ValueError(
         "Downstream has no GitOrigin-RevId commits, and upstream and "
@@ -555,15 +556,20 @@ def verify_repos_share_history_to_adjust_limits(
     num_cls_to_downstream = 0
     last_related_rev = ""
 
-    last_related_rev, num_cls_to_downstream = find_last_merged_rev(
-        config,
-        config.upstream,
-        downstream,
-        pending_changes=pending_changes,
+    last_related_rev, last_related_downstream_rev, num_cls_to_downstream = (
+        find_last_merged_rev(
+            config,
+            config.upstream,
+            downstream,
+            pending_changes=pending_changes,
+        )
     )
+    logger.info("Last related revision: %s", last_related_rev)
     if last_related_rev in pending_changes:
         logger.info("Last related revision from pending changes!")
-    logger.info("Last related revision: %s", last_related_rev)
+    else:
+        config.upstream.history_starts_with = last_related_rev
+        downstream.history_starts_with = last_related_downstream_rev
 
     logger.info("Found: %s new changes to downstream", num_cls_to_downstream)
 
@@ -980,6 +986,56 @@ def fetch_all_targets_head_from_remote(
     )
 
 
+def upload_updated_config(config: copybot_argparser.CopybotConfig) -> None:
+    config_repo = gerrit.GitRepo(pathlib.Path(__file__).resolve().parent)
+    try:
+        config_repo.add(config.config_file_path)
+        config_repo.commit(
+            (
+                "copybot: Update Config Files\n\n"
+                "Auto generated CL by copybot.\n"
+                "Update up/downstream history starts with hashes\n\n"
+                "BUG=None\nTEST=CQ"
+            )
+        )
+    except subprocess.CalledProcessError as e:
+        logging.warning("Could not update config: %s", e)
+        raise gerrit.MergeConflictsError(
+            commits=[
+                config.upstream.history_starts_with,
+                config.downstreams[0].history_starts_with,
+            ]
+        )
+    push_changes_to_downstream(
+        config,
+        copybot_argparser.DownstreamConfig(
+            labels=["Verified+1", "Bot-Commit+1", "Commit-Queue+2"],
+            reviewers=[],
+            ccs=[],
+            push_options=["uploadvalidator~skip", "nokeycheck"],
+            hashtags=["copybot-config-update"],
+            prepend_subject="",
+            insert_into_msg={},
+            keep_pseudoheaders=[],
+            limit=0,
+            history_limit=0,
+            include_paths=[],
+            add_pseudoheaders=[],
+            history_starts_with="",
+            url="https://chromium.googlesource.com/copybot",
+            branch="main",
+            subtree="",
+            is_local=False,
+            head_sha=None,
+            history_length=0,
+            repo=config_repo,
+            remote_name="downstream",
+            cl_dispatcher_history_starts_with=(""),
+        ),
+        False,
+    )
+
+
 def run_copybot(
     GerritCls: type[gerrit.GerritInterface],
     config: copybot_argparser.CopybotConfig,
@@ -1100,6 +1156,27 @@ def run_copybot(
             skip_cq = any(conflicted_revs) or pending_to_submit
             push_changes_to_downstream(config, downstream, skip_cq)
 
+        if config.config_file_path and not config.dry_run and not skip_cq:
+            update_config_args = [
+                "--config",
+                config.config_file_path,
+                "--generate-config",
+                config.config_file_path,
+                "--upstream-history-starts-with",
+                config.upstream.history_starts_with,
+                "--downstream-history-starts-with",
+                config.downstreams[0].history_starts_with,
+            ]
+            try:
+                copybot_argparser.generate_config(update_config_args)
+                upload_updated_config(config)
+            except gerrit.MergeConflictsError as e:
+                logging.info(
+                    "Could not update up/down stream history origins %s", e
+                )
+        else:
+            logging.info("Skipping up/down stream history origins update")
+
         log_unapplied_commits(
             config.upstream.repo,
             empty_revs,
@@ -1137,13 +1214,13 @@ def main(argv: list[str] | None = None) -> None:
         tempfile.TemporaryDirectory("_patches") as patch_dir,
     ):
         config = copybot_argparser.parse_copybot_config(git_root_dir, argv)
-        if config.generate_config:
-            copybot_argparser.generate_config(argv)
-            return
-
         err = None
         try:
-            run_copybot(gerrit.Gerrit, config, patch_dir)
+            if config.generate_config:
+                copybot_argparser.generate_config(argv)
+                upload_updated_config(config)
+            else:
+                run_copybot(gerrit.Gerrit, config, patch_dir)
         except NothingToDo as e:
             logger.info("%s. Nothing to do!", str(e))
         except Exception as e:

@@ -86,6 +86,7 @@ def cons_default_copybot_config() -> copybot_argparser.CopybotConfig:
         downstreams=[downstream_config],
         upstream=upstream_config,
         generate_config=False,
+        config_file_path="test_path.ini",
     )
     return copybot_config
 

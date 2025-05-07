@@ -89,6 +89,12 @@ class TargetConfig:
     # will be used across targets
     remote_name: str
 
+    def __str__(self) -> str:
+        return (
+            f"<Target {self.remote_name}: branch={self.branch}, "
+            "subtree={self.subtree}, url={self.url}>"
+        )
+
 
 @dataclasses.dataclass
 class DownstreamConfig(TargetConfig):

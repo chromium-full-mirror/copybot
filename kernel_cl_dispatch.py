@@ -162,7 +162,7 @@ def select_kernel_cl_dispatching_locations(
         # N/A tag was set, nothing to do
         return []
 
-    return [
+    dispatching_locations = [
         downstream
         for downstream in all_downstream_locations
         if downstream.remote_name in stable_tags
@@ -171,3 +171,13 @@ def select_kernel_cl_dispatching_locations(
             or _location_contains_fixed_commit(fixes_tag, downstream)
         )
     ]
+    if dispatching_locations:
+        logger.info(
+            "[Kernel CL Dispatcher] Dispatching commit %s from upstream=%s "
+            "to the following downstream locations:\n - %s",
+            rev,
+            upstream,
+            "\n - ".join([str(x) for x in dispatching_locations]),
+        )
+
+    return dispatching_locations

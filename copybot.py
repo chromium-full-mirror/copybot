@@ -1053,6 +1053,8 @@ def run_copybot(
     gerrit_inst: gerrit.GerritInterface | None = None
 
     for downstream in config.downstreams:
+        logger.info("Processing downstream %s", str(downstream))
+
         if (m := is_server_gob(str(downstream.url))) is not None:
             downstream_gob_host = m.group(1)
             downstream_project = m.group(2)
@@ -1209,6 +1211,7 @@ def main(argv: list[str] | None = None) -> None:
         format="%(asctime)s %(levelname)s: %(message)s",
         level=logging.INFO,
     )
+    logger.info("-- Starting CopyBot service --")
     with (
         tempfile.TemporaryDirectory(".copybot") as git_root_dir,
         tempfile.TemporaryDirectory("_patches") as patch_dir,
@@ -1229,6 +1232,8 @@ def main(argv: list[str] | None = None) -> None:
         finally:
             if config.json_out:
                 write_json_error(config.json_out, err)
+
+        logger.info("-- CopyBot finished successfully --")
 
 
 if __name__ == "__main__":

@@ -166,7 +166,7 @@ def generate_config(argv: Optional[List[str]] = None) -> None:
     os.makedirs(os.path.dirname(opts.generate_config), exist_ok=True)
     with open(opts.generate_config, "w", encoding="utf-8") as outfile:
         outfile.write("[copybot]\n")
-        exclude_args = ["config", "generate_config", "dry_run"]
+        exclude_args = ["config", "generate_config", "dry_run", "json_out"]
         for name, value in vars(opts).items():
             if (
                 name in exclude_args

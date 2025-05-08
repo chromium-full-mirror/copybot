@@ -114,20 +114,15 @@ def _parse_kernel_dispatching_tags(
     return stable_tags, fixes_commit_message
 
 
-def _validate_remote_names_match_stable_values(
-    downstreams: list[copybot_argparser.DownstreamConfig],
+def _validate_remote_name_match_stable_values(
+    downstream: copybot_argparser.DownstreamConfig,
 ) -> None:
     """Ensure that downstream's remote names are in supported stable tags."""
-    invalid_downstreams = [
-        downstream
-        for downstream in downstreams
-        if downstream.remote_name not in SUPPORTED_STABLE_TAG_VALUES
-    ]
-    if invalid_downstreams:
+    if downstream.remote_name not in SUPPORTED_STABLE_TAG_VALUES:
         raise ValueError(
             "Downstream remote names in Kernel CL Dispatching use case should "
-            "match supported stable tag values. Invalid remote names: "
-            f"{invalid_downstreams}"
+            "match supported stable tag values. Invalid remote name on: "
+            f"{downstream}"
         )
 
 
@@ -147,37 +142,47 @@ def _location_contains_fixed_commit(
     return bool(grep_results)
 
 
-def select_kernel_cl_dispatching_locations(
+def should_rev_be_dispatched_to_location(
     upstream: copybot_argparser.UpstreamConfig,
-    all_downstream_locations: list[copybot_argparser.DownstreamConfig],
-    rev: str,
-) -> list[copybot_argparser.DownstreamConfig]:
-    """Select locations that are meant as a target for CL dispatching."""
-    _validate_remote_names_match_stable_values(all_downstream_locations)
+    downstream: copybot_argparser.DownstreamConfig,
+    upstream_rev: str,
+) -> bool:
+    """Return if a patch should be dispatched to a given downstream."""
+    _validate_remote_name_match_stable_values(downstream)
 
-    commit_message = upstream.repo.get_commit_message(rev)
+    commit_message = upstream.repo.get_commit_message(upstream_rev)
     stable_tags, fixes_tag = _parse_kernel_dispatching_tags(commit_message)
 
     if stable_tags & NO_DISPATCHING_NEEDED_TAGS:
         # N/A tag was set, nothing to do
-        return []
+        return False
 
-    dispatching_locations = [
-        downstream
-        for downstream in all_downstream_locations
-        if downstream.remote_name in stable_tags
-        and (
-            fixes_tag is None
-            or _location_contains_fixed_commit(fixes_tag, downstream)
-        )
-    ]
-    if dispatching_locations:
+    is_eligible = downstream.remote_name in stable_tags and (
+        fixes_tag is None
+        or _location_contains_fixed_commit(fixes_tag, downstream)
+    )
+    if is_eligible:
         logger.info(
             "[Kernel CL Dispatcher] Dispatching commit %s from upstream=%s "
-            "to the following downstream locations:\n - %s",
-            rev,
+            "to the following downstream location: %s",
+            upstream_rev,
             upstream,
-            "\n - ".join([str(x) for x in dispatching_locations]),
+            downstream,
         )
+    return is_eligible
 
-    return dispatching_locations
+
+def select_kernel_cl_dispatching_locations(
+    upstream: copybot_argparser.UpstreamConfig,
+    all_downstream_locations: list[copybot_argparser.DownstreamConfig],
+    upstream_rev: str,
+) -> list[copybot_argparser.DownstreamConfig]:
+    """Select locations that are meant as a target for CL dispatching."""
+
+    return [
+        downstream
+        for downstream in all_downstream_locations
+        if should_rev_be_dispatched_to_location(
+            upstream, downstream, upstream_rev
+        )
+    ]

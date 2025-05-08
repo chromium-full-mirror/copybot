@@ -149,6 +149,9 @@ class CopybotConfig:
     downstreams: list[DownstreamConfig]
     upstream: UpstreamConfig
     generate_config: bool
+    # Enable a functionality adding support for dispatching kernel bug fixes
+    # from ChromeOS. See: go/kernel-cl-dispatch"
+    enable_kernel_cl_dispatcher: bool
 
 
 def generate_config(argv: Optional[List[str]] = None) -> None:
@@ -366,6 +369,12 @@ def create_arg_parser() -> configargparse.ArgumentParser:
         default="",
     )
     parser.add_argument(
+        "--enable-kernel-cl-dispatcher",
+        help="Enable a functionality adding support for dispatching "
+        "kernel bug fixes from ChromeOS. See: go/kernel-cl-dispatch",
+        action="store_true",
+    )
+    parser.add_argument(
         "--generate-config",
         help="Generate config file from input arguments/files. Output will be"
         " stored in the --config path and then the program will exit.",
@@ -497,6 +506,7 @@ def parse_copybot_config(
         upstream=upstream_config,
         generate_config=opts.generate_config,
         config_file_path=opts.config,
+        enable_kernel_cl_dispatcher=opts.enable_kernel_cl_dispatcher,
     )
 
     for downstream_config in downstream_configs:

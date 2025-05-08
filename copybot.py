@@ -54,6 +54,7 @@ from typing import Any, Final
 
 import copybot_argparser
 import gerrit
+import kernel_cl_dispatch
 
 
 PRESERVE_TAG: Final[str] = "copybot-preserve"
@@ -329,6 +330,12 @@ def find_commits_to_copy(
             if "copybot-skip" in pending_changes[rev].hashtags:
                 logger.info("Skip %s due to copybot-skip hashtag", rev)
                 copybot_skip_cls.append(rev)
+                continue
+
+        if config.enable_kernel_cl_dispatcher:
+            if not kernel_cl_dispatch.should_rev_be_dispatched_to_location(
+                upstream, downstream, rev
+            ):
                 continue
 
         # If change is in pending list, allow relands

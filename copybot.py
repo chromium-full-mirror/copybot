@@ -148,7 +148,7 @@ def find_last_merged_rev(
             or origin_revid
             or (change_id and include_change_id)
         ):
-            if origin_revid in upstream_hashes:
+            if origin_revid in upstream_hashes or rev in upstream_hashes:
                 counter = upstream_hashes.index(origin_revid or rev)
             elif include_change_id and change_id in upstream_change_ids:
                 origin_revid = upstream_change_ids[change_id]

@@ -395,6 +395,7 @@ class GitRepo:
         sign_off: bool = False,
         stage: bool = False,
         update_author: str = "",
+        allow_empty: bool = False,
     ) -> str:
         """Create a commit.
 
@@ -410,6 +411,8 @@ class GitRepo:
             extra_args.append("--amend")
         if sign_off:
             extra_args.append("--signoff")
+        if allow_empty:
+            extra_args.append("--allow-empty")
         self._run_git("commit", *extra_args, "-m", message)
         return self.rev_parse()
 
@@ -630,6 +633,13 @@ class GitRepo:
                 'No valid patches in input (allow with "--allow-empty")'
                 in e.stderr
             ):
+                self.commit(
+                    self.get_commit_message(rev),
+                    amend=False,
+                    sign_off=False,
+                    stage=False,
+                    allow_empty=True,
+                )
                 raise EmptyCommitError() from e
         self.add(downstream_subtree, stage=True, force=True)
         try:
@@ -642,6 +652,13 @@ class GitRepo:
         except subprocess.CalledProcessError as e:
             if "nothing to commit, working tree clean" in e.stderr:
                 logger.info("Empty commit error")
+                self.commit(
+                    self.get_commit_message(rev),
+                    amend=False,
+                    sign_off=False,
+                    stage=False,
+                    allow_empty=True,
+                )
                 raise EmptyCommitError() from e
         return
 

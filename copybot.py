@@ -852,7 +852,7 @@ def cherry_pick_commits_to_downstream(
                     exclude_paths=config.exclude_file_patterns,
                 )
         except gerrit.EmptyCommitError:
-            logger.warning("Skip cherry-pick due to empty commit")
+            logger.warning("Applied empty commit")
             empty_revs.append(rev)
             continue
         except gerrit.MergeConflictError as e:
@@ -889,7 +889,7 @@ def cherry_pick_commits_to_downstream(
                     rev,
                 )
                 if was_commit_empty:
-                    logger.warning("Skip cherry-pick due to empty commit")
+                    logger.warning("Applied empty commit")
                     empty_revs.append(rev)
                 else:
                     conflicted_revs.append(rev)
@@ -913,14 +913,14 @@ def cherry_pick_commits_to_downstream(
     return conflicted_revs, empty_revs, skipped_revs
 
 
-def log_unapplied_empty_commits(
+def log_empty_commits(
     repo: gerrit.GitRepoInterface, empty_revs: list[str]
 ) -> None:
     """Log warning commits that were not applied as they were empty."""
     emptylist = [repo.log(rev, fmt="%H %s", num=1) for rev in empty_revs]
     if emptylist:
         logger.warning(
-            "The following commits were not applied because they were empty:"
+            "The following commits were applied but they were empty:"
         )
         for rev in emptylist:
             logger.warning("- %s", rev)
@@ -961,7 +961,7 @@ def log_unapplied_commits(
     conflicted_revs: list[str],
 ) -> None:
     """Log all unapplied commits."""
-    log_unapplied_empty_commits(repo, empty_revs)
+    log_empty_commits(repo, empty_revs)
     log_unapplied_merge_conflicted_commits(repo, skipped_revs)
     log_unapplied_commits_with_conflicts(repo, conflicted_revs)
 

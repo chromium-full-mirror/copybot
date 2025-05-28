@@ -1149,7 +1149,7 @@ def run_copybot(
             updated_commits_to_copy,
             pending_changes,
         )
-
+        skip_cq = True
         if downstream.repo.rev_parse() == downstream.head_sha:
             logger.info("Nothing to push!")
         else:

@@ -275,7 +275,7 @@ def test_run_copybot__smoke_test(copybot_config) -> None:
 def test_parse_insert_into_msg():
     msg = ["1:Android Bringup: See http://go/android-fw-sync"]
     assert copybot_argparser.parse_insert_into_msg(msg) == {
-        1: "Android Bringup: See http://go/android-fw-sync",
+        1: "Android Bringup: See http://go/android-fw-sync\n",
     }
 
 

@@ -602,6 +602,8 @@ def find_pending_change_at_bottom_of_stack(
     copybot_skip_cls: list[str],
     commits_to_copy: list[str],
     pending_changes: dict[str, gerrit.GerritClInfo],
+    config: copybot_argparser.CopybotConfig,
+    downstream: copybot_argparser.DownstreamConfig,
 ) -> tuple[str | None, int]:
     """Determine if there is a pending change at the beginning of the stack.
 
@@ -618,6 +620,8 @@ def find_pending_change_at_bottom_of_stack(
         copybot_skip_cls: A list of CLs that should be skipped
         commits_to_copy: A stack of commits to go through
         pending_changes: Changes pending in downstream repo.
+        config: Copybot configuration object
+        downstream: Configuration for downstream location.
 
     Returns:
         * Pending revision at the beginning of the stack
@@ -625,14 +629,24 @@ def find_pending_change_at_bottom_of_stack(
     """
     pending_rev = None
     cl_count = 0
+    downstream_hashes = list(
+        downstream.repo.log_hashes(
+            revision_range=downstream.head_sha,
+            subtree=downstream.subtree,
+            exclude_file_patterns=config.exclude_file_patterns,
+            num=downstream.history_length,
+        )
+    )
     if not copybot_skip_cls:
         for rev in reversed(commits_to_copy):
-            if rev not in pending_changes:
+            if rev not in pending_changes and rev not in downstream_hashes:
+                logging.info("Breaking on %s", rev)
                 break
             if any(
                 tag in (REBASE_TAG, REWORD_TAG)
                 for tag in pending_changes[rev].hashtags
             ):
+                logging.info("Breaking due to rebase/reword tag on %s", rev)
                 break
             pending_rev = rev
             cl_count += 1
@@ -1121,7 +1135,11 @@ def run_copybot(
             commits_to_copy = commits_to_copy[-downstream.limit :]
 
         pending_rev, cl_count = find_pending_change_at_bottom_of_stack(
-            copybot_skip_cls, commits_to_copy, pending_changes
+            copybot_skip_cls=copybot_skip_cls,
+            commits_to_copy=commits_to_copy,
+            pending_changes=pending_changes,
+            config=config,
+            downstream=downstream,
         )
 
         checkout_downstream_repo(

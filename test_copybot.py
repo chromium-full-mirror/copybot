@@ -366,11 +366,13 @@ def test_fetch_history_length(copybot_config) -> None:
     )
 
 
-def test_find_pending_change_at_bottom_of_stack():
+def test_find_pending_change_at_bottom_of_stack(copybot_config):
     pending_rev, cl_count = copybot.find_pending_change_at_bottom_of_stack(
         copybot_skip_cls=[],
         commits_to_copy=[REVISION],
         pending_changes=PENDING_CHANGES,
+        config=copybot_config,
+        downstream=copybot_config.downstreams[0],
     )
     assert (pending_rev, cl_count) == (REVISION, 1)
 

@@ -88,6 +88,7 @@ def cons_default_copybot_config() -> copybot_argparser.CopybotConfig:
         generate_config=False,
         config_file_path="test_path.ini",
         enable_kernel_cl_dispatcher=False,
+        first_unmerged=False,
     )
     return copybot_config
 

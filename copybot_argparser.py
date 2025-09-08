@@ -152,6 +152,9 @@ class CopybotConfig:
     # Enable a functionality adding support for dispatching kernel bug fixes
     # from ChromeOS. See: go/kernel-cl-dispatch"
     enable_kernel_cl_dispatcher: bool
+    # Flag indicating whether to find the last merged or first unmerged commit
+    #   to act on.
+    first_unmerged: bool
 
 
 def generate_config(argv: Optional[List[str]] = None) -> None:
@@ -396,6 +399,13 @@ def create_arg_parser() -> configargparse.ArgumentParser:
         required=True,
         dest="downstream",
     )
+    parser.add_argument(
+        "--first-unmerged",
+        help="Start downstreaming CL's from the first unmerged version."
+        " Default is false, in which case the last merged version"
+        " encountered is used to start the downstreaming process.",
+        action="store_true",
+    )
     return parser
 
 
@@ -507,6 +517,7 @@ def parse_copybot_config(
         generate_config=opts.generate_config,
         config_file_path=opts.config,
         enable_kernel_cl_dispatcher=opts.enable_kernel_cl_dispatcher,
+        first_unmerged=opts.first_unmerged,
     )
 
     for downstream_config in downstream_configs:

@@ -97,6 +97,85 @@ def fetch_upstream_change_ids(
     }
 
 
+def find_first_unmerged_rev(
+    config: copybot_argparser.CopybotConfig,
+    upstream: copybot_argparser.UpstreamConfig,
+    downstream: copybot_argparser.DownstreamConfig,
+    pending_changes: dict[str, gerrit.GerritClInfo] | None = None,
+) -> tuple[str, str, int]:
+    """Find the first unmerged revision in a Git repo.
+
+    Args:
+        config: The parsed command line arguments.
+        upstream: Configuration for upstream location.
+        downstream: Configuration for downstream location.
+        pending_changes: Changes pending in downstream repo.
+
+    Returns:
+        Three values,
+            1. A commit hash of the last merged revision by CopyBot, or the
+                first common commit hash in both logs.
+            2. The downstream commit hash
+            3. The number of CLs which are eligible to be downstreamed.
+
+    Raises:
+        ValueError: No common history could be found.
+    """
+    upstream_hashes = upstream.repo.log_hashes(
+        revision_range=upstream.head_sha,
+        subtree=upstream.subtree,
+        exclude_file_patterns=config.exclude_file_patterns,
+        num=upstream.history_length,
+    )
+    upstream_change_ids = fetch_upstream_change_ids(
+        upstream.repo, upstream_hashes, upstream.history_limit
+    )
+    downstream_hashes = downstream.repo.log_hashes(
+        revision_range=downstream.head_sha,
+        subtree=downstream.subtree,
+        exclude_file_patterns=config.exclude_file_patterns,
+        num=downstream.history_length,
+    )
+    downstream_hashes.reverse()
+
+    include_change_id = are_repos_related(upstream, downstream)
+    logger.info("Downstream hashes: %s", downstream_hashes)
+    found_relationship = False
+    counter = 0
+    found_origin = ""
+    found_rev = ""
+    for rev in downstream_hashes:
+        logger.info("Checking downstream hash: %s", rev)
+        commit_message = downstream.repo.get_commit_message(rev)
+        origin_revid = gerrit.get_origin_rev_id(commit_message)
+        change_id = gerrit.get_change_id(commit_message)
+        if (
+            rev in upstream_hashes
+            or origin_revid
+            or (change_id and include_change_id)
+        ):
+            found_relationship = True
+            found_origin = origin_revid
+            found_rev = rev
+            if origin_revid in upstream_hashes or rev in upstream_hashes:
+                counter = upstream_hashes.index(origin_revid or rev)
+            elif include_change_id and change_id in upstream_change_ids:
+                found_origin = upstream_change_ids[change_id]
+                counter = upstream_hashes.index(found_origin or rev)
+        elif found_relationship:
+            return found_origin or found_rev, found_rev, counter
+
+    for rev in upstream_hashes:
+        if pending_changes and rev in pending_changes:
+            counter = upstream_hashes.index(rev)
+            return rev, rev, counter
+
+    raise ValueError(
+        "Downstream has no GitOrigin-RevId commits, and upstream and "
+        "downstream share no common history."
+    )
+
+
 def find_last_merged_rev(
     config: copybot_argparser.CopybotConfig,
     upstream: copybot_argparser.UpstreamConfig,
@@ -561,16 +640,28 @@ def verify_repos_share_history_to_adjust_limits(
     """Verify history and adjust limits if there are more CLs downstream."""
 
     num_cls_to_downstream = 0
+    last_related_downstream_rev = ""
     last_related_rev = ""
 
-    last_related_rev, last_related_downstream_rev, num_cls_to_downstream = (
-        find_last_merged_rev(
-            config,
-            config.upstream,
-            downstream,
-            pending_changes=pending_changes,
+    if config.first_unmerged:
+        last_related_rev, last_related_downstream_rev, num_cls_to_downstream = (
+            find_first_unmerged_rev(
+                config,
+                config.upstream,
+                downstream,
+                pending_changes=pending_changes,
+            )
         )
-    )
+    else:
+        last_related_rev, last_related_downstream_rev, num_cls_to_downstream = (
+            find_last_merged_rev(
+                config,
+                config.upstream,
+                downstream,
+                pending_changes=pending_changes,
+            )
+        )
+
     logger.info("Last related revision: %s", last_related_rev)
     if last_related_rev in pending_changes:
         logger.info("Last related revision from pending changes!")

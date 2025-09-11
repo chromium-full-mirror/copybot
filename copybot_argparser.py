@@ -92,7 +92,7 @@ class TargetConfig:
     def __str__(self) -> str:
         return (
             f"<Target {self.remote_name}: branch={self.branch}, "
-            "subtree={self.subtree}, url={self.url}>"
+            f"subtree={self.subtree}, url={self.url}>"
         )
 
 

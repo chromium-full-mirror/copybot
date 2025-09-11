@@ -171,8 +171,8 @@ def find_first_unmerged_rev(
             return rev, rev, counter
 
     raise ValueError(
-        "Downstream has no GitOrigin-RevId commits, and upstream and "
-        "downstream share no common history."
+        f"Downstream ({downstream}) has no GitOrigin-RevId commits, and "
+        f"upstream ({upstream}) and downstream share no common history."
     )
 
 
@@ -222,6 +222,7 @@ def find_last_merged_rev(
         commit_message = downstream.repo.get_commit_message(rev)
         origin_revid = gerrit.get_origin_rev_id(commit_message)
         change_id = gerrit.get_change_id(commit_message)
+
         if (
             rev in upstream_hashes
             or origin_revid
@@ -242,8 +243,8 @@ def find_last_merged_rev(
             return rev, rev, counter
 
     raise ValueError(
-        "Downstream has no GitOrigin-RevId commits, and upstream and "
-        "downstream share no common history."
+        f"Downstream ({downstream}) has no GitOrigin-RevId commits, and "
+        f"upstream ({upstream}) and downstream share no common history."
     )
 
 

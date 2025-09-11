@@ -146,6 +146,12 @@ def _location_contains_fixed_commit(
         "--grep",
         f"{fixes_tag}$",
     )
+    if not grep_results:
+        logger.info(
+            '[Kernel CL Dispatcher] Could not find in commit "%s" in %s',
+            fixes_tag,
+            downstream,
+        )
     return bool(grep_results)
 
 

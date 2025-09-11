@@ -1227,7 +1227,8 @@ def run_copybot(
         )
 
         if not commits_to_copy:
-            raise NothingToDo
+            # Nothing to copy, proceed to the next downstream
+            continue
 
         if not config.filter_changes:
             downstream.subtree = ""

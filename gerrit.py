@@ -163,7 +163,7 @@ class GitRepoInterface(Protocol):
 
     def fetch(self, remote: str, ref: str = "") -> str: ...
 
-    def checkout(self, ref: str) -> None: ...
+    def checkout(self, ref: str, *args: list[str]) -> None: ...
 
     def log(
         self,
@@ -286,9 +286,9 @@ class GitRepo:
         self._run_git("fetch", remote, *extra_args)
         return self.rev_parse("FETCH_HEAD")
 
-    def checkout(self, ref: str) -> None:
+    def checkout(self, ref: str, *args: list[str]) -> None:
         """Do a `git checkout`."""
-        self._run_git("checkout", ref)
+        self._run_git("checkout", *args, ref)
 
     def log(
         self,

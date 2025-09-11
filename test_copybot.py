@@ -19,6 +19,7 @@ import pytest
 
 CHANGE_ID: Final[str] = "I657462dfcec2969cc00d2804922b71587094c87h"
 REVISION: Final[str] = "deadbeef"
+REMOTE_NAME: Final[str] = "origin"
 
 PENDING_CHANGES = {
     REVISION: gerrit.GerritClInfo(change_id=CHANGE_ID, hashtags="", ref="REF")
@@ -41,11 +42,16 @@ def cons_default_upstream_config() -> copybot_argparser.UpstreamConfig:
 
 def cons_default_downstream_config(
     remote_name: str = "downstream",
+    repo: gerrit.GitRepoInterface | None = None,
+    url: str = "https://chromium.googlesource.com/chromiumos/b",
+    history_starts_with: str = REVISION,
+    cl_dispatcher_history_starts_with: str = "219d54332a09e",
+    is_local: bool = False,
 ) -> copybot_argparser.DownstreamConfig:
     return copybot_argparser.DownstreamConfig(
         history_limit=250,
-        history_starts_with=REVISION,
-        url="https://chromium.googlesource.com/chromiumos/b",
+        history_starts_with=history_starts_with,
+        url=url,
         branch="main",
         subtree="",
         head_sha=REVISION,
@@ -61,10 +67,10 @@ def cons_default_downstream_config(
         limit=200,
         include_paths=[],
         add_pseudoheaders=[],
-        is_local=False,
-        repo=GitRepoMock(),
+        is_local=is_local,
+        repo=repo or GitRepoMock(),
         remote_name=remote_name,
-        cl_dispatcher_history_starts_with="219d54332a09e",
+        cl_dispatcher_history_starts_with=cl_dispatcher_history_starts_with,
     )
 
 
@@ -93,6 +99,21 @@ def cons_default_copybot_config() -> copybot_argparser.CopybotConfig:
     return copybot_config
 
 
+def create_commit(
+    path: pathlib.Path,
+    repo: gerrit.GitRepo,
+    filename_to_create: str,
+    commit_msg: str | None = None,
+) -> tuple[str, str]:
+    commit_msg = commit_msg or f"CHROMIUM: Add {filename_to_create}"
+
+    (path / filename_to_create).write_text(filename_to_create)
+    repo.add(filename_to_create)
+    repo.commit(message=commit_msg)
+    commit_hash = repo.rev_parse()
+    return commit_msg, commit_hash
+
+
 class GitRepoMock:
     """GitRepo mock for testing purposes."""
 
@@ -106,7 +127,7 @@ class GitRepoMock:
     def fetch(self, *unused_args, **unused_kwargs) -> str:
         return "fetched_commit_sha"
 
-    def checkout(self, ref: str) -> None:
+    def checkout(self, ref: str, *unused_args: list[str]) -> None:
         del ref
 
     def log(self, *unused_args, **unused_kwargs) -> str:
@@ -255,11 +276,6 @@ def test_main_raise_error(tmp_path):
     assert json.loads(err_out.read_text()) == {
         "failure_reason": "FAILURE_DOWNSTREAM_PUSH_ERROR",
     }
-
-
-@pytest.fixture(name="copybot_config")
-def copybot_config_fixture():
-    return cons_default_copybot_config()
 
 
 def test_run_copybot__smoke_test(copybot_config) -> None:
@@ -581,3 +597,201 @@ class TestGenerateConfig:
                     "upstream",
                 ]
             )
+
+
+class TestCopyBotIntegration:
+    """Integration tests for the Copybot."""
+
+    @pytest.fixture
+    def git_repos(self, tmp_path):
+        """Creates upstream and downstream git repos for integration testing."""
+        upstream_path = tmp_path / "upstream"
+        downstream_path = tmp_path / "downstream"
+        upstream_path.mkdir()
+        downstream_path.mkdir()
+
+        # Use the actual git repositories
+        upstream_repo = gerrit.GitRepo(upstream_path)
+        downstream_repo = gerrit.GitRepo(downstream_path)
+
+        _, common_ancestor_hash = create_commit(
+            upstream_path, upstream_repo, "initial_commit"
+        )
+        commit1_msg, commit1_hash = create_commit(
+            upstream_path, upstream_repo, "feature_a"
+        )
+        commit2_msg, commit2_hash = create_commit(
+            upstream_path, upstream_repo, "feature_b"
+        )
+
+        # Setup downstream repo to start from the common ancestor
+        downstream_repo.add_remote(name=REMOTE_NAME, url=str(upstream_path))
+        downstream_repo.fetch(REMOTE_NAME)
+        downstream_repo.checkout(common_ancestor_hash)
+        downstream_repo.checkout("main", "-b")
+
+        return {
+            "upstream_path": upstream_path,
+            "downstream_path": downstream_path,
+            "upstream_repo": upstream_repo,
+            "downstream_repo": downstream_repo,
+            "commits_to_copy": [commit1_hash, commit2_hash],
+            "commit_messages": [commit1_msg, commit2_msg],
+            "common_ancestor_hash": common_ancestor_hash,
+        }
+
+    @mock.patch("copybot.upload_updated_config")
+    def test_copybot_e2e(self, mock_upload_config, git_repos, copybot_config):
+        """Tests a standard run of the copybot script."""
+        copybot_config.dry_run = True
+
+        copybot_config.upstream.repo = git_repos["upstream_repo"]
+        copybot_config.upstream.url = str(git_repos["upstream_path"])
+        copybot_config.upstream.history_starts_with = git_repos[
+            "common_ancestor_hash"
+        ]
+
+        downstream_config = copybot_config.downstreams[0]
+        downstream_config.repo = git_repos["downstream_repo"]
+        downstream_config.url = str(git_repos["downstream_path"])
+        downstream_config.history_starts_with = git_repos[
+            "common_ancestor_hash"
+        ]
+        downstream_config.is_local = True
+
+        # Run copybot
+        with tempfile.TemporaryDirectory("_patches_e2e") as patch_dir:
+            copybot.run_copybot(GerritMock, copybot_config, patch_dir)
+
+        # Ensure config is not updated in this test
+        mock_upload_config.assert_not_called()
+
+        # Take git log of downstream repo
+        log_hashes = git_repos["downstream_repo"].log_hashes(
+            revision_range="HEAD"
+        )
+        log_hashes.reverse()  # Order from oldest to newest
+
+        assert len(log_hashes) == 3, "There should be exactly 3 commits"
+        assert (
+            log_hashes[0] == git_repos["common_ancestor_hash"]
+        ), "The log should start with the initial commit"
+
+        # Check the first copied commit
+        msg1 = git_repos["downstream_repo"].get_commit_message(log_hashes[1])
+        origin_rev1 = gerrit.get_origin_rev_id(msg1)
+        change_id1 = gerrit.get_change_id(msg1)
+        assert origin_rev1 == git_repos["commits_to_copy"][0]
+        assert change_id1, "A new Change-Id should have been generated"
+        assert git_repos["commit_messages"][0].strip() in msg1
+
+        # Check the second copied commit
+        msg2 = git_repos["downstream_repo"].get_commit_message(log_hashes[2])
+        origin_rev2 = gerrit.get_origin_rev_id(msg2)
+        change_id2 = gerrit.get_change_id(msg2)
+        assert origin_rev2 == git_repos["commits_to_copy"][1]
+        assert change_id2, "A new Change-Id should have been generated"
+        assert git_repos["commit_messages"][1].strip() in msg2
+
+        assert change_id1 != change_id2, "Change-Ids should be unique"
+
+    @pytest.fixture
+    def git_repos_for_filtering(self, tmp_path):
+        """Creates repos for testing file filtering."""
+        upstream_path = tmp_path / "upstream"
+        downstream_path = tmp_path / "downstream"
+        upstream_path.mkdir()
+        downstream_path.mkdir()
+
+        upstream_repo = gerrit.GitRepo(upstream_path)
+        downstream_repo = gerrit.GitRepo(downstream_path)
+
+        _, common_ancestor_hash = create_commit(
+            upstream_path, upstream_repo, "initial_commit"
+        )
+
+        # Create a commit that modifies one file to be kept and one file
+        # to be filtered out.
+        (upstream_path / "src").mkdir()
+        (upstream_path / "docs").mkdir()
+        (upstream_path / "src" / "feature.c").write_text(
+            "int main() { return 0; }"
+        )
+        (upstream_path / "docs" / "guide.md").write_text("# Documentation")
+        upstream_repo.add(".")
+        upstream_repo.commit(message="CHROMIUM: Add new feature with docs")
+        commit_hash = upstream_repo.rev_parse()
+
+        # Setup downstream repo
+        downstream_repo.add_remote(name=REMOTE_NAME, url=str(upstream_path))
+        downstream_repo.fetch(REMOTE_NAME)
+        downstream_repo.checkout(common_ancestor_hash)
+        downstream_repo.checkout("main", "-b")
+
+        return {
+            "upstream_repo": upstream_repo,
+            "downstream_repo": downstream_repo,
+            "commit_to_copy": commit_hash,
+            "common_ancestor_hash": common_ancestor_hash,
+        }
+
+    @mock.patch("copybot.upload_updated_config")
+    def test_copybot_e2e_with_file_filtering(
+        self, mock_upload_config, git_repos_for_filtering, copybot_config
+    ):
+        """Tests that files can be filtered out of a commit."""
+        git_repos = git_repos_for_filtering
+        copybot_config.dry_run = True
+        copybot_config.filter_file_patterns = [r"docs/.*"]
+
+        copybot_config.upstream.repo = git_repos["upstream_repo"]
+        copybot_config.upstream.url = str(git_repos["upstream_repo"].git_dir)
+        copybot_config.upstream.history_starts_with = git_repos[
+            "common_ancestor_hash"
+        ]
+
+        downstream_config = copybot_config.downstreams[0]
+        downstream_config.repo = git_repos["downstream_repo"]
+        downstream_config.url = str(git_repos["downstream_repo"].git_dir)
+        downstream_config.history_starts_with = git_repos[
+            "common_ancestor_hash"
+        ]
+        downstream_config.is_local = True
+
+        # Run copybot
+        with tempfile.TemporaryDirectory("_patches_e2e_filter") as patch_dir:
+            copybot.run_copybot(GerritMock, copybot_config, patch_dir)
+
+        # Ensure config is not updated in this test
+        mock_upload_config.assert_not_called()
+
+        # Take git log of downstream repo
+        log_hashes = git_repos["downstream_repo"].log_hashes()
+        log_hashes.reverse()
+
+        assert len(log_hashes) == 2, "There should be exactly 2 commits"
+        assert (
+            log_hashes[0] == git_repos["common_ancestor_hash"]
+        ), "The log should start with the initial commit"
+
+        new_commit_hash = log_hashes[1]
+        new_msg = git_repos["downstream_repo"].get_commit_message(
+            new_commit_hash
+        )
+
+        # Verify the commit message includes the skipped file pseudoheader
+        assert "CopyBot-Skipped-File: docs/guide.md" in new_msg
+
+        # Verify that only the unfiltered file was part of the new commit
+        changed_files = git_repos["downstream_repo"].commit_file_list(
+            new_commit_hash
+        )
+        assert "src/feature.c" in changed_files
+        assert "docs/guide.md" not in changed_files
+        assert (
+            len(changed_files) == 1
+        ), "Only one file should have been committed"
+
+        # Verify the origin revision ID is correct
+        origin_rev = gerrit.get_origin_rev_id(new_msg)
+        assert origin_rev == git_repos["commit_to_copy"]

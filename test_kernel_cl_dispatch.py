@@ -7,6 +7,7 @@
 
 """Unit tests for kernel_cl_dispatch.py module."""
 
+import logging
 from unittest import mock
 
 import kernel_cl_dispatch
@@ -111,6 +112,20 @@ def test_parse_kernel_dispatching_tags_no_stable() -> None:
         kernel_cl_dispatch._parse_kernel_dispatching_tags(commit_message)
     )
     assert actual_stable == set(), actual_fixes == ""
+
+
+def test_parse_kernel_dispatching_tags_no_stable_tag_does_not_log_error(
+    caplog,
+) -> None:
+    """Verify that parsing a commit without a STABLE does not log error."""
+    commit_message = "Subject: A standard commit message."
+    with caplog.at_level(logging.ERROR):
+        stable_tags, _ = kernel_cl_dispatch._parse_kernel_dispatching_tags(
+            commit_message
+        )
+
+    assert not stable_tags
+    assert "Unsupported STABLE tag value" not in caplog.text
 
 
 def test_parse_kernel_dispatching_tags_unknown_tag() -> None:

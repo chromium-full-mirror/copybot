@@ -101,11 +101,18 @@ def _parse_kernel_dispatching_tags(
         pseudoheaders,
         commit_message,
     ) = gerrit.Pseudoheaders.from_commit_message(commit_message, separator="=")
-    stable_tags = set(
-        _unravel_stable_tags(
-            [tag.strip() for tag in pseudoheaders.get(STABLE_TAG).split(",")]
+
+    stable_tag_value = pseudoheaders.get(STABLE_TAG)
+    stable_tags = (
+        set(
+            _unravel_stable_tags(
+                [tag.strip() for tag in stable_tag_value.split(",")]
+            )
         )
+        if stable_tag_value
+        else set()
     )
+
     fixes_tag = pseudoheaders.get(FIXES_TAG).strip()
     if fixes_tag:
         _, fixes_commit_message = fixes_tag.split(" ", 1)

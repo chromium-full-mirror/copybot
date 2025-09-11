@@ -1065,11 +1065,10 @@ def log_unapplied_commits(
     log_unapplied_commits_with_conflicts(repo, conflicted_revs)
 
 
-def fetch_all_targets_head_from_remote(
+def fetch_upstream_target_head_from_remote(
     config: copybot_argparser.CopybotConfig,
-    downstream: copybot_argparser.DownstreamConfig,
 ) -> None:
-    """Fetch config targets head based on the given remote url & branch."""
+    """Git fetch copybot upstream sources."""
     # Fetch upstream
     config.upstream.repo.add_remote(
         config.upstream.url, config.upstream.remote_name
@@ -1079,6 +1078,13 @@ def fetch_all_targets_head_from_remote(
         config.upstream.remote_name,
         config.upstream.branch,
     )
+
+
+def fetch_downstream_target_head_from_remote(
+    config: copybot_argparser.CopybotConfig,
+    downstream: copybot_argparser.DownstreamConfig,
+) -> None:
+    """Fetch config targets head based on the given remote url & branch."""
     # Fetch downstream
     downstream.repo.add_remote(downstream.url, downstream.remote_name)
     downstream.head_sha = fetch_repo_head_sha(
@@ -1163,6 +1169,11 @@ def run_copybot(
     abandoned_changes: dict[str, gerrit.GerritClInfo] = {}
     gerrit_inst: gerrit.GerritInterface | None = None
 
+    fetch_upstream_target_head_from_remote(config)
+    config.upstream.history_length = fetch_history_length(
+        config.upstream, "Upstream"
+    )
+
     for downstream in config.downstreams:
         logger.info("Processing downstream %s", str(downstream))
 
@@ -1188,11 +1199,8 @@ def run_copybot(
                 len(abandoned_changes),
             )
 
-        fetch_all_targets_head_from_remote(config, downstream)
+        fetch_downstream_target_head_from_remote(config, downstream)
 
-        config.upstream.history_length = fetch_history_length(
-            config.upstream, "Upstream"
-        )
         downstream.history_length = fetch_history_length(
             downstream, "Downstream"
         )

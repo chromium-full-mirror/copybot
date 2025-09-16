@@ -1146,7 +1146,7 @@ def upload_updated_config(config: copybot_argparser.CopybotConfig) -> None:
             head_sha=None,
             history_length=0,
             repo=config_repo,
-            remote_name="downstream",
+            remote_name="copybot",
             cl_dispatcher_history_starts_with=(""),
         ),
         False,

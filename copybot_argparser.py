@@ -406,6 +406,18 @@ def create_arg_parser() -> configargparse.ArgumentParser:
         " encountered is used to start the downstreaming process.",
         action="store_true",
     )
+    parser.add_argument(
+        "--upstream-remote-name",
+        type=str,
+        default="upstream",
+        help="Unique label of the upstream target used as a git remote name",
+    )
+    parser.add_argument(
+        "--downstream-remote-name",
+        type=str,
+        default="downstream",
+        help="Unique label of the downstream target used as a git remote name",
+    )
     return parser
 
 
@@ -438,18 +450,18 @@ def parse_copybot_config(
     filter_file_patterns = [
         re.compile(str(pattern)) for pattern in opts.exclude_file_patterns
     ]
-    downstream_remote_name = "downstream"
-    upstream_remote_name = "upstream"
 
     if downstream_is_local:
         downstream_git_dir = downstream_url
     else:
-        downstream_git_dir = os.path.join(git_root_dir, downstream_remote_name)
+        downstream_git_dir = os.path.join(
+            git_root_dir, opts.downstream_remote_name
+        )
         os.makedirs(downstream_git_dir)
 
     downstream_repo = gerrit.GitRepo(downstream_git_dir)
 
-    upstream_git_dir = os.path.join(git_root_dir, upstream_remote_name)
+    upstream_git_dir = os.path.join(git_root_dir, opts.upstream_remote_name)
     os.makedirs(upstream_git_dir)
     upstream_repo = gerrit.GitRepo(upstream_git_dir)
 
@@ -475,7 +487,7 @@ def parse_copybot_config(
             head_sha=None,
             history_length=0,
             repo=downstream_repo,
-            remote_name=downstream_remote_name,
+            remote_name=opts.downstream_remote_name,
             cl_dispatcher_history_starts_with=(
                 opts.downstream_cl_dispatcher_history_starts_with
             ),
@@ -490,7 +502,7 @@ def parse_copybot_config(
         head_sha=None,
         history_length=0,
         repo=upstream_repo,
-        remote_name=upstream_remote_name,
+        remote_name=opts.upstream_remote_name,
     )
     all_remote_names = [upstream_config.remote_name] + [
         dc.remote_name for dc in downstream_configs

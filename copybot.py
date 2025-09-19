@@ -1103,7 +1103,10 @@ def fetch_downstream_target_head_from_remote(
     )
 
 
-def upload_updated_config(config: copybot_argparser.CopybotConfig) -> None:
+def upload_updated_config(
+    config: copybot_argparser.CopybotConfig,
+    downstream: copybot_argparser.DownstreamConfig | None = None,
+) -> None:
     config_repo = gerrit.GitRepo(pathlib.Path(__file__).resolve().parent)
     try:
         config_repo.add(config.config_file_path)
@@ -1117,12 +1120,11 @@ def upload_updated_config(config: copybot_argparser.CopybotConfig) -> None:
         )
     except subprocess.CalledProcessError as e:
         logging.warning("Could not update config: %s", e)
-        raise gerrit.MergeConflictsError(
-            commits=[
-                config.upstream.history_starts_with,
-                config.downstreams[0].history_starts_with,
-            ]
-        )
+        commits = [config.upstream.history_starts_with]
+        if downstream:
+            commits.append(downstream.history_starts_with)
+        raise gerrit.MergeConflictsError(commits=commits)
+
     push_changes_to_downstream(
         config,
         copybot_argparser.DownstreamConfig(
@@ -1291,13 +1293,13 @@ def run_copybot(
                 "--upstream-history-starts-with",
                 config.upstream.history_starts_with,
                 "--downstream-history-starts-with",
-                config.downstreams[0].history_starts_with,
+                downstream.history_starts_with,
             ]
             try:
                 copybot_argparser.generate_config(update_config_args)
-                upload_updated_config(config)
+                upload_updated_config(config, downstream)
             except gerrit.MergeConflictsError as e:
-                logging.info(
+                logger.exception(
                     "Could not update up/down stream history origins %s", e
                 )
         else:

@@ -1106,8 +1106,10 @@ def fetch_downstream_target_head_from_remote(
 def upload_updated_config(
     config: copybot_argparser.CopybotConfig,
     downstream: copybot_argparser.DownstreamConfig | None = None,
+    config_repo: gerrit.GitRepo | None = None,
 ) -> None:
-    config_repo = gerrit.GitRepo(pathlib.Path(__file__).resolve().parent)
+    if config_repo is None:
+        config_repo = gerrit.GitRepo(pathlib.Path(__file__).resolve().parent)
     try:
         config_repo.add(config.config_file_path)
         config_repo.commit(

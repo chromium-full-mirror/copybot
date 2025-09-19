@@ -117,8 +117,15 @@ def create_commit(
 class GitRepoMock:
     """GitRepo mock for testing purposes."""
 
+    # Mocked methods to allow for call assertions
+    add = None
+    commit = None
+
     def __init__(self, git_dir: Union[str, "os.PathLike[str]"] = "") -> None:
         self.git_dir = pathlib.Path(git_dir)
+
+        self.add = mock.Mock()
+        self.commit = mock.Mock()
 
     def rev_parse(self, rev: str = "HEAD") -> str:
         del rev
@@ -210,6 +217,85 @@ class GerritMock:
         self, *unused_args, **unused_kwargs
     ) -> Tuple[Dict[str, gerrit.GerritClInfo], Dict[str, gerrit.GerritClInfo]]:
         return PENDING_CHANGES, {}
+
+
+@mock.patch("gerrit.GitRepo", GitRepoMock)
+def test_parse_copybot_config_from_file(tmp_path):
+    """Tests parsing a config from a file."""
+    argv = ["--config", "tests/test_config.ini"]
+    config = copybot_argparser.parse_copybot_config(tmp_path, argv)
+
+    assert config.topic == "copybot-downstream"
+    assert config.merge_conflict_behavior == gerrit.MergeConflictBehavior.STOP
+    assert len(config.downstreams) == 1
+    downstream = config.downstreams[0]
+    assert (
+        downstream.url
+        == "https://chromium.googlesource.com/chromiumos/downstream"
+    )
+    assert downstream.branch == "main"
+    assert downstream.subtree == "subtree"
+    assert downstream.labels == [
+        "Verified+1",
+        "Bot-Commit+1",
+        "Commit-Queue+2",
+    ]
+    assert downstream.reviewers == ["example@gmail.com"]
+    assert downstream.push_options == [
+        "uploadvalidator~skip",
+        "nokeycheck",
+    ]
+    assert downstream.keep_pseudoheaders == ["Cq-Depend"]
+    assert downstream.history_limit == 1000
+    assert downstream.history_starts_with == "ebebebeb"
+
+    upstream = config.upstream
+    assert (
+        upstream.url == "https://chromium.googlesource.com/chromiumos/upstream"
+    )
+    assert upstream.branch == "main"
+    assert upstream.subtree == ""
+    assert upstream.history_starts_with == "deadbeef"
+
+
+@mock.patch("copybot.push_changes_to_downstream")
+def test_upload_updated_config(mock_push, copybot_config):
+    """Test that upload_updated_config correctly commits the config file."""
+    copybot_config.config_file_path = "path/to/my_config.ini"
+
+    # Define the expected commit message
+    expected_commit_msg = (
+        "copybot: Update Config Files\n\n"
+        "Auto generated CL by copybot.\n"
+        "Update up/downstream history starts with hashes\n\n"
+        "BUG=None\nTEST=CQ"
+    )
+
+    mock_repo = GitRepoMock()
+    copybot.upload_updated_config(copybot_config, config_repo=mock_repo)
+
+    mock_repo.add.assert_called_once_with("path/to/my_config.ini")
+    mock_repo.commit.assert_called_once_with(expected_commit_msg)
+
+    # Check that the push was called with correct arguments
+    mock_push.assert_called_once()
+    called_args = mock_push.call_args[0]
+    assert len(called_args) == 3
+
+    called_config = called_args[0]
+    called_downstream_config = called_args[1]
+    called_skip_cq = called_args[2]
+
+    assert called_config == copybot_config
+    assert isinstance(
+        called_downstream_config, copybot_argparser.DownstreamConfig
+    )
+    assert (
+        called_downstream_config.url
+        == "https://chromium.googlesource.com/copybot"
+    )
+    assert called_downstream_config.branch == "main"
+    assert called_skip_cq is False
 
 
 def test_prefix_pseudoheaders():

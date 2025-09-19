@@ -113,7 +113,6 @@ class DownstreamConfig(TargetConfig):
     limit: int
     # The maximum number of CLs in the downstream history to check.
     include_paths: list[str | os.PathLike[str]]
-    add_pseudoheaders: list[str]
     is_local: bool
     # Kernel CL Dispatcher config to mark until what SHA should the history
     # be traversed when looking for commits mentioned in FIXES tag.
@@ -155,6 +154,8 @@ class CopybotConfig:
     # Flag indicating whether to find the last merged or first unmerged commit
     #   to act on.
     first_unmerged: bool
+    # Pseudoheaders to be added to the commit message
+    add_pseudoheaders: list[str]
 
 
 def generate_config(argv: Optional[List[str]] = None) -> None:
@@ -478,7 +479,6 @@ def parse_copybot_config(
             limit=opts.limit,
             history_limit=opts.downstream_history_limit,
             include_paths=opts.include_downstream,
-            add_pseudoheaders=opts.add_pseudoheaders,
             history_starts_with=opts.downstream_history_starts_with,
             url=downstream_url,
             branch=downstream_branch,
@@ -530,6 +530,7 @@ def parse_copybot_config(
         config_file_path=opts.config,
         enable_kernel_cl_dispatcher=opts.enable_kernel_cl_dispatcher,
         first_unmerged=opts.first_unmerged,
+        add_pseudoheaders=opts.add_pseudoheaders,
     )
 
     for downstream_config in downstream_configs:

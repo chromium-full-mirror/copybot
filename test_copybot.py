@@ -66,7 +66,6 @@ def cons_default_downstream_config(
         keep_pseudoheaders=[],
         limit=200,
         include_paths=[],
-        add_pseudoheaders=[],
         is_local=is_local,
         repo=repo or GitRepoMock(),
         remote_name=remote_name,
@@ -95,6 +94,7 @@ def cons_default_copybot_config() -> copybot_argparser.CopybotConfig:
         config_file_path="test_path.ini",
         enable_kernel_cl_dispatcher=False,
         first_unmerged=False,
+        add_pseudoheaders=[],
     )
     return copybot_config
 

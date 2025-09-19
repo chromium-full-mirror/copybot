@@ -879,7 +879,7 @@ def commit_with_conflicts(
             skipped_files=skipped_files_map[rev],
             sign_off=config.add_signed_off_by,
             additional_pseudoheaders=[
-                *downstream.add_pseudoheaders,
+                *config.add_pseudoheaders,
                 "Commit: false",
             ],
         )
@@ -1005,7 +1005,7 @@ def cherry_pick_commits_to_downstream(
                 change_id=change_id or gerrit.generate_change_id(),
                 skipped_files=skipped_files_map[rev],
                 sign_off=config.add_signed_off_by,
-                additional_pseudoheaders=downstream.add_pseudoheaders,
+                additional_pseudoheaders=config.add_pseudoheaders,
             )
         current_change = downstream.repo.log(num=1, fmt="%H")
         logger.info("Revision %s cherry-picked as %s", rev, current_change)
@@ -1139,7 +1139,6 @@ def upload_updated_config(
             limit=0,
             history_limit=0,
             include_paths=[],
-            add_pseudoheaders=[],
             history_starts_with="",
             url="https://chromium.googlesource.com/copybot",
             branch="main",

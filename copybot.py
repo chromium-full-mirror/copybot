@@ -37,6 +37,10 @@ Usage: copybot.py [options...] upstream_repo:branch downstream_repo:branch
 #   name: "infra/python/wheels/urllib3-py2_py3"
 #   version: "version:1.26.6"
 # >
+# wheel: <
+#   name: "infra/python/wheels/pyyaml-py3"
+#   version: "version:6.0.1"
+# >
 # [VPYTHON:END]
 
 from __future__ import annotations

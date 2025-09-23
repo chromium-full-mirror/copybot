@@ -18,6 +18,7 @@ import urllib.parse
 
 import configargparse  # type: ignore[import] # pylint: disable=import-error
 import gerrit
+import yaml  # type: ignore[import] # pylint: disable=import-error
 
 
 logger = logging.getLogger(__name__)
@@ -164,6 +165,12 @@ def generate_config(argv: Optional[List[str]] = None) -> None:
     dest_to_default = {}
     parser = create_arg_parser()
     opts = parser.parse_args(argv)
+
+    # Strip quotes from string values
+    for key, value in vars(opts).items():
+        if isinstance(value, str):
+            setattr(opts, key, value.strip('"'))
+
     # Iterate over the support arguments and generate maps for accessing
     # both the default options and the storage name/command-line name of
     # the options.
@@ -180,6 +187,7 @@ def generate_config(argv: Optional[List[str]] = None) -> None:
     with open(opts.generate_config, "w", encoding="utf-8") as outfile:
         outfile.write("[copybot]\n")
         exclude_args = ["config", "generate_config", "dry_run", "json_out"]
+        no_quote_keys = ["merge_conflict_behavior", "exclude_method"]
         for name, value in vars(opts).items():
             if (
                 name in exclude_args
@@ -188,8 +196,8 @@ def generate_config(argv: Optional[List[str]] = None) -> None:
             ):
                 continue
             if isinstance(value, list):
-                value = "[%s]" % ", ".join(value)
-            elif isinstance(value, str):
+                value = "[%s]" % ", ".join([f'"{item}"' for item in value])
+            elif isinstance(value, str) and name not in no_quote_keys:
                 value = f'"{value}"'
             outfile.write(f"{dest_to_option[name]} = {value}\n")
 
@@ -199,6 +207,7 @@ def create_arg_parser() -> configargparse.ArgumentParser:
 
     parser = configargparse.ArgumentParser(
         description="CopyBot",
+        config_file_parser_class=configargparse.ConfigparserConfigFileParser,
         default_config_files=["config/copybot.conf"],
     )
     parser.add(
@@ -392,13 +401,20 @@ def create_arg_parser() -> configargparse.ArgumentParser:
         required=True,
         dest="upstream",
     )
-    parser.add_argument(
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
         "--downstream-url",
         help="Downstream Git URL, optionally with a branch and subtree"
         "separated by colons",
         default="",
-        required=True,
         dest="downstream",
+    )
+    group.add_argument(
+        "--downstreams",
+        default="{}",
+        type=yaml.safe_load,
+        help="A dictionary with a definition of all downstreams along with"
+        "their configs.",
     )
     parser.add_argument(
         "--first-unmerged",
@@ -427,19 +443,23 @@ def parse_copybot_config(
 ) -> CopybotConfig:
     """Processes command line args and generates a config object."""
     parser = create_arg_parser()
+
     opts = parser.parse_args(argv)
+
+    # Strip quotes from string values
+    for key, value in vars(opts).items():
+        if isinstance(value, str):
+            setattr(opts, key, value.strip('"'))
+
+    if not opts.downstreams:
+        opts.downstreams = {opts.downstream_remote_name: opts.downstream}
+
     (
         _,
         upstream_url,
         upstream_branch,
         upstream_subtree,
     ) = parse_repo_info(opts.upstream)
-    (
-        downstream_is_local,
-        downstream_url,
-        downstream_branch,
-        downstream_subtree,
-    ) = parse_repo_info(opts.downstream)
 
     exclude_file_patterns = []
     if (
@@ -452,47 +472,54 @@ def parse_copybot_config(
         re.compile(str(pattern)) for pattern in opts.exclude_file_patterns
     ]
 
-    if downstream_is_local:
-        downstream_git_dir = downstream_url
-    else:
-        downstream_git_dir = os.path.join(
-            git_root_dir, opts.downstream_remote_name
-        )
-        os.makedirs(downstream_git_dir)
-
-    downstream_repo = gerrit.GitRepo(downstream_git_dir)
-
     upstream_git_dir = os.path.join(git_root_dir, opts.upstream_remote_name)
     os.makedirs(upstream_git_dir)
     upstream_repo = gerrit.GitRepo(upstream_git_dir)
 
-    downstream_configs = [
-        DownstreamConfig(
-            labels=opts.labels,
-            reviewers=opts.reviewers,
-            ccs=opts.ccs,
-            push_options=opts.push_options,
-            hashtags=opts.hashtags,
-            prepend_subject=opts.prepend_subject,
-            insert_into_msg=parse_insert_into_msg(opts.insert_into_msg),
-            keep_pseudoheaders=list(opts.keep_pseudoheaders),
-            limit=opts.limit,
-            history_limit=opts.downstream_history_limit,
-            include_paths=opts.include_downstream,
-            history_starts_with=opts.downstream_history_starts_with,
-            url=downstream_url,
-            branch=downstream_branch,
-            subtree=downstream_subtree,
-            is_local=downstream_is_local,
-            head_sha=None,
-            history_length=0,
-            repo=downstream_repo,
-            remote_name=opts.downstream_remote_name,
-            cl_dispatcher_history_starts_with=(
-                opts.downstream_cl_dispatcher_history_starts_with
-            ),
+    downstream_configs = []
+
+    for remote_name, raw_downstream in opts.downstreams.items():
+        (
+            downstream_is_local,
+            downstream_url,
+            downstream_branch,
+            downstream_subtree,
+        ) = parse_repo_info(raw_downstream)
+
+        if downstream_is_local:
+            downstream_git_dir = downstream_url
+        else:
+            downstream_git_dir = os.path.join(git_root_dir, remote_name)
+            os.makedirs(downstream_git_dir)
+
+        downstream_configs.append(
+            DownstreamConfig(
+                labels=opts.labels,
+                reviewers=opts.reviewers,
+                ccs=opts.ccs,
+                push_options=opts.push_options,
+                hashtags=opts.hashtags,
+                prepend_subject=opts.prepend_subject,
+                insert_into_msg=parse_insert_into_msg(opts.insert_into_msg),
+                keep_pseudoheaders=list(opts.keep_pseudoheaders),
+                limit=opts.limit,
+                history_limit=opts.downstream_history_limit,
+                include_paths=opts.include_downstream,
+                history_starts_with=opts.downstream_history_starts_with,
+                url=downstream_url,
+                branch=downstream_branch,
+                subtree=downstream_subtree,
+                is_local=downstream_is_local,
+                head_sha=None,
+                history_length=0,
+                repo=gerrit.GitRepo(downstream_git_dir),
+                remote_name=remote_name,
+                cl_dispatcher_history_starts_with=(
+                    opts.downstream_cl_dispatcher_history_starts_with
+                ),
+            )
         )
-    ]
+
     upstream_config = UpstreamConfig(
         url=upstream_url,
         branch=upstream_branch,

@@ -258,6 +258,63 @@ def test_parse_copybot_config_from_file(tmp_path):
     assert upstream.history_starts_with == "deadbeef"
 
 
+@mock.patch("gerrit.GitRepo", GitRepoMock)
+def test_parse_copybot_config_from_file__downstreams(tmp_path):
+    """Tests parsing a config from a file."""
+    argv = ["--config", "tests/test_config_downstreams.ini"]
+    config = copybot_argparser.parse_copybot_config(tmp_path, argv)
+
+    assert config.topic == "multiple-downstreams"
+    assert config.downstreams == [
+        copybot_argparser.DownstreamConfig(
+            history_limit=1000,
+            history_starts_with="ebebebeb",
+            url="https://chromium.googlesource.com/chromiumos/downstream1",
+            branch="main1",
+            subtree="subtree1",
+            head_sha=None,
+            history_length=0,
+            repo=config.downstreams[0].repo,
+            remote_name="first",
+            labels=["Verified+1", "Bot-Commit+1", "Commit-Queue+2"],
+            reviewers=["example@gmail.com"],
+            ccs=[],
+            push_options=["uploadvalidator~skip", "nokeycheck"],
+            hashtags=[],
+            prepend_subject="",
+            insert_into_msg={},
+            keep_pseudoheaders=["Cq-Depend"],
+            limit=200,
+            include_paths=[],
+            is_local=False,
+            cl_dispatcher_history_starts_with="",
+        ),
+        copybot_argparser.DownstreamConfig(
+            history_limit=1000,
+            history_starts_with="ebebebeb",
+            url="https://chromium.googlesource.com/chromiumos/downstream2",
+            branch="main2",
+            subtree="subtree2",
+            head_sha=None,
+            history_length=0,
+            repo=config.downstreams[1].repo,
+            remote_name="second",
+            labels=["Verified+1", "Bot-Commit+1", "Commit-Queue+2"],
+            reviewers=["example@gmail.com"],
+            ccs=[],
+            push_options=["uploadvalidator~skip", "nokeycheck"],
+            hashtags=[],
+            prepend_subject="",
+            insert_into_msg={},
+            keep_pseudoheaders=["Cq-Depend"],
+            limit=200,
+            include_paths=[],
+            is_local=False,
+            cl_dispatcher_history_starts_with="",
+        ),
+    ]
+
+
 @mock.patch("copybot.push_changes_to_downstream")
 def test_upload_updated_config(mock_push, copybot_config):
     """Test that upload_updated_config correctly commits the config file."""
@@ -592,7 +649,7 @@ class TestGenerateConfig:
         with open(self.config_file, "r", encoding="utf-8") as f:
             content = f.read()
         assert content == (
-            "[copybot]\nlabel = [copybot-downstream]\n"
+            '[copybot]\nlabel = ["copybot-downstream"]\n'
             'upstream-url = "upstream"\ndownstream-url = "downstream"\n'
         )
 
@@ -616,7 +673,7 @@ class TestGenerateConfig:
         with open(self.config_file, "r", encoding="utf-8") as f:
             content = f.read()
         assert content == (
-            "[copybot]\nlabel = [copybot-downstream]\n"
+            '[copybot]\nlabel = ["copybot-downstream"]\n'
             'upstream-url = "upstream"\ndownstream-url = "downstream"\n'
         )
 

@@ -259,6 +259,23 @@ def test_parse_copybot_config_from_file(tmp_path):
 
 
 @mock.patch("gerrit.GitRepo", GitRepoMock)
+def test_parsing_all_commited_config_files():
+    """Smoke-test parsing all config files that are in the repository."""
+    config_dir = pathlib.Path(__file__).parent / "config"
+    for config_file in config_dir.glob("*.ini"):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            argv = ["--config", str(config_file)]
+            try:
+                copybot_argparser.parse_copybot_config(
+                    pathlib.Path(tmp_dir), argv
+                )
+            except Exception as e:
+                raise ValueError(
+                    f"Could not parse config file {config_file}"
+                ) from e
+
+
+@mock.patch("gerrit.GitRepo", GitRepoMock)
 def test_parse_copybot_config_from_file__downstreams(tmp_path):
     """Tests parsing a config from a file."""
     argv = ["--config", "tests/test_config_downstreams.ini"]

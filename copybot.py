@@ -648,24 +648,51 @@ def verify_repos_share_history_to_adjust_limits(
     last_related_downstream_rev = ""
     last_related_rev = ""
 
-    if config.first_unmerged:
-        last_related_rev, last_related_downstream_rev, num_cls_to_downstream = (
-            find_first_unmerged_rev(
+    try:
+        if config.first_unmerged:
+            (
+                last_related_rev,
+                last_related_downstream_rev,
+                num_cls_to_downstream,
+            ) = find_first_unmerged_rev(
                 config,
                 config.upstream,
                 downstream,
                 pending_changes=pending_changes,
             )
-        )
-    else:
-        last_related_rev, last_related_downstream_rev, num_cls_to_downstream = (
-            find_last_merged_rev(
+        else:
+            (
+                last_related_rev,
+                last_related_downstream_rev,
+                num_cls_to_downstream,
+            ) = find_last_merged_rev(
                 config,
                 config.upstream,
                 downstream,
                 pending_changes=pending_changes,
             )
-        )
+    except ValueError:
+        if (
+            config.upstream.history_starts_with
+            and downstream.history_starts_with
+        ):
+            logger.warning(
+                "Could not find relationship in repository histories,"
+                " starting from config 'history_starts_with"
+            )
+            upstream_hashes = config.upstream.repo.log_hashes(
+                revision_range=config.upstream.head_sha,
+                subtree=config.upstream.subtree,
+                exclude_file_patterns=config.exclude_file_patterns,
+                num=config.upstream.history_length,
+            )
+            last_related_rev = config.upstream.history_starts_with
+            last_related_downstream_rev = downstream.history_starts_with
+            num_cls_to_downstream = upstream_hashes.index(
+                config.upstream.history_starts_with
+            )
+        else:
+            raise
 
     logger.info("Last related revision: %s", last_related_rev)
     if last_related_rev in pending_changes:

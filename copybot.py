@@ -941,10 +941,12 @@ def cherry_pick_commits_to_downstream(
             )
         try:
             if pending_change:
-                downstream.repo.fetch(
-                    downstream.url, pending_changes[rev].current_ref
+                logger.warning(
+                    "Stopping at revision %s due to copybot-preserve tag",
+                    rev,
                 )
-                downstream.repo.cherry_pick("FETCH_HEAD")
+                skipped_revs.extend(list(reversed(commits_to_copy))[i:])
+                break
             else:
                 downstream.repo.cherry_pick(
                     filtered_rev or rev,

@@ -1315,7 +1315,9 @@ def run_copybot(
         if downstream.repo.rev_parse() == downstream.head_sha:
             logger.info("Nothing to push!")
         else:
-            skip_cq = any(conflicted_revs) or pending_to_submit
+            skip_cq = (
+                any(conflicted_revs) or pending_to_submit or any(skipped_revs)
+            )
             push_changes_to_downstream(config, downstream, skip_cq)
 
         if config.config_file_path and not config.dry_run and not skip_cq:

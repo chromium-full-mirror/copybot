@@ -599,8 +599,9 @@ def get_push_refspec(
 
 
 def is_server_gob(url: str) -> re.Match[str] | None:
+    """Check if the server is a Google-controlled Git-on-Borg host."""
     return re.fullmatch(
-        r"https://(chromium|chrome-internal)"
+        r"https://(chromium|chrome-internal|android|partner-android)"
         r"(?:-review)?\.googlesource\.com/(.*)",
         url,
     )

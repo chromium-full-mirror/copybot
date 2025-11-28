@@ -309,7 +309,7 @@ def test_parse_copybot_config_from_file__downstreams(tmp_path):
         copybot_argparser.DownstreamConfig(
             history_limit=1000,
             history_starts_with="ebebebeb",
-            url="https://chromium.googlesource.com/chromiumos/downstream2",
+            url="https://android.googlesource.com/chromiumos/downstream2",
             branch="main2",
             subtree="subtree2",
             head_sha=None,
@@ -533,6 +533,19 @@ def test_is_server_gob(copybot_config) -> None:
     assert copybot.is_server_gob(copybot_config.upstream.url)
     assert not copybot.is_server_gob(
         "https://github.com/coq-community/coq-tricks"
+    )
+    assert copybot.is_server_gob(
+        "https://android.googlesource.com/kernel/common"
+    )
+    assert copybot.is_server_gob(
+        "https://partner-android.googlesource.com/kernel/common"
+    )
+    assert copybot.is_server_gob(
+        "https://android-review.googlesource.com/c/kernel/common/+/2000000"
+    )
+    assert copybot.is_server_gob(
+        "https://partner-android-review.googlesource.com"
+        "/c/kernel-desktop/private/desktop-google/+/20000"
     )
 
 

@@ -25,125 +25,125 @@ def upstream_config_fixture():
     return config
 
 
-def test_unravel_stable_tags_single() -> None:
+def test_unravel_branches_tags_single() -> None:
     tags = ["chromeos-5.4"]
     expected = ["chromeos-5.4"]
-    assert list(kernel_cl_dispatch._unravel_stable_tags(tags)) == expected
+    assert list(kernel_cl_dispatch._unravel_branches_tags(tags)) == expected
 
 
-def test_unravel_stable_tags_group() -> None:
+def test_unravel_branches_tags_group() -> None:
     tags = ["chromeos-all"]
-    expected = kernel_cl_dispatch.CHROMEOS_STABLE_TAGS
+    expected = kernel_cl_dispatch.CHROMEOS_BRANCHES_TAGS
     assert sorted(
-        list(kernel_cl_dispatch._unravel_stable_tags(tags))
+        list(kernel_cl_dispatch._unravel_branches_tags(tags))
     ) == sorted(expected)
 
 
-def test_unravel_stable_tags_mixed() -> None:
+def test_unravel_branches_tags_mixed() -> None:
     tags = ["chromeos-5.4", "android-desktop-all", "chromeos-6.12"]
     expected = (
         ["chromeos-5.4"]
-        + kernel_cl_dispatch.ANDROID_DESKTOP_STABLE_TAGS
+        + kernel_cl_dispatch.ANDROID_DESKTOP_BRANCHES_TAGS
         + ["chromeos-6.12"]
     )
     assert sorted(
-        list(kernel_cl_dispatch._unravel_stable_tags(tags))
+        list(kernel_cl_dispatch._unravel_branches_tags(tags))
     ) == sorted(expected)
 
 
-def test_unravel_stable_tags_nested_group() -> None:
+def test_unravel_branches_tags_nested_group() -> None:
     kernel_cl_dispatch.GROUPS_MAPPING["nested-all"] = ["chromeos-all"]
     tags = ["nested-all"]
-    expected = kernel_cl_dispatch.CHROMEOS_STABLE_TAGS
+    expected = kernel_cl_dispatch.CHROMEOS_BRANCHES_TAGS
     assert sorted(
-        list(kernel_cl_dispatch._unravel_stable_tags(tags))
+        list(kernel_cl_dispatch._unravel_branches_tags(tags))
     ) == sorted(expected)
     del kernel_cl_dispatch.GROUPS_MAPPING["nested-all"]  # Clean up
 
 
-def test_parse_kernel_dispatching_tags_single_stable() -> None:
-    commit_message = "Subject: Test commit\n\nSTABLE=chromeos-5.4\n"
-    actual_stable, actual_fixes = (
+def test_parse_kernel_dispatching_tags_single_branches() -> None:
+    commit_message = "Subject: Test commit\n\nBranches: chromeos-5.4\n"
+    actual_branches, actual_fixes = (
         kernel_cl_dispatch._parse_kernel_dispatching_tags(commit_message)
     )
-    assert actual_stable == {"chromeos-5.4"}
+    assert actual_branches == {"chromeos-5.4"}
     assert actual_fixes is None
 
 
-def test_parse_kernel_dispatching_tags_multiple_stable() -> None:
+def test_parse_kernel_dispatching_tags_multiple_branches() -> None:
     commit_message = (
-        "Subject: Test commit\n\nSTABLE=chromeos-5.4,   chromeos-6.1 \n"
+        "Subject: Test commit\n\nBranches: chromeos-5.4,   chromeos-6.1 \n"
     )
-    actual_stable, actual_fixes = (
+    actual_branches, actual_fixes = (
         kernel_cl_dispatch._parse_kernel_dispatching_tags(commit_message)
     )
-    assert actual_stable == {"chromeos-5.4", "chromeos-6.1"}
+    assert actual_branches == {"chromeos-5.4", "chromeos-6.1"}
     assert actual_fixes is None
 
 
-def test_parse_kernel_dispatching_tags_mixed_stable() -> None:
+def test_parse_kernel_dispatching_tags_mixed_branches() -> None:
     commit_message = (
-        "Subject: Test commit\n\nSTABLE=chromeos-5.4, android-desktop-all\n"
+        "Subject: Test commit\n\nBranches: chromeos-5.4, android-desktop-all\n"
     )
-    expected_stable = {"chromeos-5.4"} | set(
-        kernel_cl_dispatch.ANDROID_DESKTOP_STABLE_TAGS
+    expected_branches = {"chromeos-5.4"} | set(
+        kernel_cl_dispatch.ANDROID_DESKTOP_BRANCHES_TAGS
     )
-    actual_stable, actual_fixes = (
+    actual_branches, actual_fixes = (
         kernel_cl_dispatch._parse_kernel_dispatching_tags(commit_message)
     )
-    assert actual_stable == expected_stable
+    assert actual_branches == expected_branches
     assert actual_fixes is None
 
 
-def test_parse_kernel_dispatching_tags_stable_with_fixes() -> None:
+def test_parse_kernel_dispatching_tags_branches_with_fixes() -> None:
     commit_message = """
     Subject: Test commit
 
-STABLE=chromeos-5.4
-FIXES=86e5d3e6b77f CHROMIUM: Very important change
+Branches: chromeos-5.4
+Fixes: 86e5d3e6b77f ("CHROMIUM: Very important change")
     """
-    actual_stable, actual_fixes = (
+    actual_branches, actual_fixes = (
         kernel_cl_dispatch._parse_kernel_dispatching_tags(commit_message)
     )
-    assert actual_stable == {"chromeos-5.4"}
+    assert actual_branches == {"chromeos-5.4"}
     assert actual_fixes == "CHROMIUM: Very important change"
 
 
-def test_parse_kernel_dispatching_tags_no_stable() -> None:
+def test_parse_kernel_dispatching_tags_no_branches() -> None:
     commit_message = "Subject: Test commit\n\n"
-    actual_stable, actual_fixes = (
+    actual_branches, actual_fixes = (
         kernel_cl_dispatch._parse_kernel_dispatching_tags(commit_message)
     )
-    assert actual_stable == set(), actual_fixes == ""
+    assert actual_branches == set(), actual_fixes == ""
 
 
-def test_parse_kernel_dispatching_tags_no_stable_tag_does_not_log_error(
+def test_parse_kernel_dispatching_tags_no_branches_tag_does_not_log_error(
     caplog,
 ) -> None:
-    """Verify that parsing a commit without a STABLE does not log error."""
+    """Verify that parsing a commit without Branches tag does not log error."""
     commit_message = "Subject: A standard commit message."
     with caplog.at_level(logging.ERROR):
-        stable_tags, _ = kernel_cl_dispatch._parse_kernel_dispatching_tags(
+        branches_tags, _ = kernel_cl_dispatch._parse_kernel_dispatching_tags(
             commit_message
         )
 
-    assert not stable_tags
-    assert "Unsupported STABLE tag value" not in caplog.text
+    assert not branches_tags
+    assert "Unsupported Branches tag value" not in caplog.text
 
 
 def test_parse_kernel_dispatching_tags_unknown_tag() -> None:
-    commit_message = "Subject: Test commit\n\nSTABLE=unknown-tag"
-    actual_stable, actual_fixes = (
+    commit_message = "Subject: Test commit\n\nBranches: unknown-tag"
+    actual_branches, actual_fixes = (
         kernel_cl_dispatch._parse_kernel_dispatching_tags(commit_message)
     )
-    assert actual_stable == set(), actual_fixes == ""
+    assert actual_branches == set(), actual_fixes == ""
 
 
 def test_select_kernel_cl_dispatching_locations_no_dispatching(
     upstream_config,
 ) -> None:
     upstream_config.repo.get_commit_message.return_value = (
-        "Subject: Test commit\n\nSTABLE=N/A\n"
+        "Subject: Test commit\n\nBranches: N/A\n"
     )
     downstream_configs = [
         test_copybot.cons_default_downstream_config(remote_name="chromeos-5.4"),
@@ -161,7 +161,7 @@ def test_select_kernel_cl_dispatching_locations_single_match(
     upstream_config,
 ) -> None:
     upstream_config.repo.get_commit_message.return_value = (
-        "Subject: Test commit\n\nSTABLE=chromeos-5.4\n"
+        "Subject: Test commit\n\nBranches: chromeos-5.4\n"
     )
     downstream_configs = [
         test_copybot.cons_default_downstream_config(remote_name="chromeos-5.4"),
@@ -181,7 +181,7 @@ def test_select_kernel_cl_dispatching_locations_multiple_matches(
     upstream_config.repo.get_commit_message.return_value = """
     Subject: Test commit
 
-STABLE=chromeos-5.4, android-mainline-desktop-core
+Branches: chromeos-5.4, android-mainline-desktop-core
     """
     downstream_configs = [
         test_copybot.cons_default_downstream_config(remote_name="chromeos-5.4"),
@@ -200,7 +200,7 @@ def test_select_kernel_cl_dispatching_locations__unsupported_downstream_remote(
     upstream_config,
 ) -> None:
     upstream_config.repo.get_commit_message.return_value = (
-        "Subject: Test commit\n\nSTABLE=chromeos-all\n"
+        "Subject: Test commit\n\nBranches: chromeos-all\n"
     )
     downstream_configs = [
         test_copybot.cons_default_downstream_config(
@@ -219,8 +219,8 @@ def test_select_kernel_cl_dispatching_locations_group_match(
     upstream_config.repo.get_commit_message.return_value = """
     Subject: Test commit
 
-STABLE=chromeos-all
-FIXES=86e5d3e6b77f CHROMIUM: Very important change
+Branches: chromeos-all
+Fixes: 86e5d3e6b77f ("CHROMIUM: Very important change")
     """
     downstream_configs = [
         test_copybot.cons_default_downstream_config(
@@ -243,8 +243,8 @@ def test_select_kernel_cl_dispatching_locations__fixes_not_present(
     upstream_config.repo.get_commit_message.return_value = """
     Subject: Test commit
 
-STABLE=chromeos-all
-FIXES=86e5d3e6b77f CHROMIUM: Very important change
+Branches: chromeos-all
+Fixes: 86e5d3e6b77f ("CHROMIUM: Very important change")
     """
     downstream_config = test_copybot.cons_default_downstream_config(
         remote_name="chromeos-5.4"
@@ -261,7 +261,7 @@ def test_select_kernel_cl_dispatching_should_skip_unknown_tag(
     upstream_config,
 ) -> None:
     upstream_config.repo.get_commit_message.return_value = (
-        "Subject: Test commit\n\nSTABLE=unknown-tag\n"
+        "Subject: Test commit\n\nBranches: unknown-tag\n"
     )
     downstream_configs = [
         test_copybot.cons_default_downstream_config(remote_name="chromeos-5.4"),
@@ -272,11 +272,11 @@ def test_select_kernel_cl_dispatching_should_skip_unknown_tag(
     assert result == []
 
 
-def test_select_kernel_cl_dispatching_locations_empty_stable_tag(
+def test_select_kernel_cl_dispatching_locations_empty_branches_tag(
     upstream_config,
 ) -> None:
     upstream_config.repo.get_commit_message.return_value = (
-        "Subject: Test commit\n\nSTABLE=\n"
+        "Subject: Test commit\n\nBranches: \n"
     )
     downstream_configs = [
         test_copybot.cons_default_downstream_config(remote_name="chromeos-5.4"),
@@ -310,8 +310,8 @@ class TestKernelClDispatcherIntegration:
 
         fix_commit_msg = f"""CHROMIUM: Fix for feature
 
-STABLE=chromeos-all
-FIXES={feature_commit_hash} {feature_commit_msg}
+Branches: chromeos-all
+Fixes: {feature_commit_hash} ("{feature_commit_msg}")
 """
         _, fix_commit_hash = test_copybot.create_commit(
             upstream_path, upstream_repo, "fix", fix_commit_msg
@@ -407,8 +407,8 @@ FIXES={feature_commit_hash} {feature_commit_msg}
         assert log2[0] == repos["common_ancestor_hash"]
 
     @pytest.fixture
-    def git_repos_for_stable_tag_test(self, tmp_path):
-        """Sets up repos for STABLE tag dispatching without a FIXES tag."""
+    def repos_for_branches_tag_test(self, tmp_path):
+        """Sets up repos for Branches tag dispatching without a FIXES tag."""
         # Setup Upstream
         upstream_path = tmp_path / "upstream"
         upstream_path.mkdir()
@@ -420,7 +420,7 @@ FIXES={feature_commit_hash} {feature_commit_msg}
 
         commit_msg = """CHROMIUM: Add new feature for selected kernel versions
 
-STABLE=chromeos-6.1, android-mainline-desktop-core
+Branches: chromeos-6.1, android-mainline-desktop-core
 """
         _, new_commit_hash = test_copybot.create_commit(
             upstream_path, upstream_repo, "new_feature", commit_msg
@@ -454,14 +454,14 @@ STABLE=chromeos-6.1, android-mainline-desktop-core
         }
 
     @mock.patch("copybot.upload_updated_config")
-    def test_kernel_cl_dispatcher_e2e_with_stable_tag(
-        self, mock_upload_config, git_repos_for_stable_tag_test, copybot_config
+    def test_kernel_cl_dispatcher_e2e_with_branches_tag(
+        self, mock_upload_config, repos_for_branches_tag_test, copybot_config
     ):
-        """Tests that a commit is dispatched based on the STABLE tag.
+        """Tests that a commit is dispatched based on the Branches tag.
 
         No FIXES tag is present.
         """
-        repos = git_repos_for_stable_tag_test
+        repos = repos_for_branches_tag_test
         copybot_config.enable_kernel_cl_dispatcher = True
         copybot_config.dry_run = True
 

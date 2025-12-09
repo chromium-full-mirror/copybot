@@ -7,22 +7,22 @@
 A library adding support for dispatching kernel bug fixes from ChromeOS, to:
 - Other ChromeOS kernel versions
 - Android Desktop kernel
-based on tags in the commit message.
+based on git trailers appended to the commit message.
 
-Existence and validity of tags is checked already by a linter.
+Existence and validity of the trailers is checked already by a linter.
 
-ChromiumOS kernel commits have a new tag in the commit message: STABLE. The tag
-lists all kernel branches that the commit should be backported to. In case it's
-a feature, or when no such branches exist, the STABLE is set to N/A.
+ChromiumOS kernel commits have a new trailer in the commit message: Branches.
+It lists all kernel branches that the commit should be backported to. In case
+it's a feature, or when no such branches exist, the Branches tag is set to N/A.
 
-If STABLE tag is non-empty (!= N/A), an additional FIXES tag is required. It
-points to the SHA & title of the commit being fixed by the patch. For the STABLE
-tag set to a group, the FIXES tag would determine whether the commit is
-cherry-picked to a given branch.
+If Branches tag is non-empty (!= N/A), an additional Fixes trailer is required.
+Similarly to its upstream counterpart, it points to the SHA & title of the
+commit being fixed by the patch. For the Branches tag set to a group, the Fixes
+tag would determine whether the commit is cherry-picked to a given branch.
 
 Using the information held by the new tags, changes to the ChromiumOS and
 Android kernel branches (for example android-mainline-desktop) specified by the
-STABLE tag will be opened automatically.
+Branches tag will be opened automatically.
 
 See: go/kernel-cl-dispatch for more details.
 """
@@ -37,11 +37,11 @@ import gerrit
 
 logger = logging.getLogger(__name__)
 
-STABLE_TAG: Literal["STABLE"] = "STABLE"
-FIXES_TAG: Literal["FIXES"] = "FIXES"
+BRANCHES_TAG: Literal["Branches"] = "Branches"
+FIXES_TAG: Literal["Fixes"] = "Fixes"
 FixesTagT = str | None
 
-CHROMEOS_STABLE_TAGS: list[str] = [
+CHROMEOS_BRANCHES_TAGS: list[str] = [
     # All deployed versions (go/cros-kernel-versions)
     "chromeos-5.4",
     "chromeos-5.10",
@@ -51,7 +51,7 @@ CHROMEOS_STABLE_TAGS: list[str] = [
     "chromeos-6.12",
 ]
 
-ANDROID_DESKTOP_STABLE_TAGS: list[str] = [
+ANDROID_DESKTOP_BRANCHES_TAGS: list[str] = [
     "android-mainline-desktop-core",
     "android-mainline-desktop-vendor",
     "android15-6.6-desktop-core",
@@ -60,13 +60,13 @@ ANDROID_DESKTOP_STABLE_TAGS: list[str] = [
     "android16-6.12-desktop-vendor",
 ]
 
-# STABLE tag steering kernel CL dispatching may not only point directly to a
-# branch, but also can specify a group as a target. We define the semantics
+# Branches tag that controls kernel CL dispatching may not only point directly
+# to a branch, but also can specify a group as a target. We define the semantics
 # of groups and supported values here:
 GROUPS_MAPPING = {
-    "all": CHROMEOS_STABLE_TAGS + ANDROID_DESKTOP_STABLE_TAGS,
-    "chromeos-all": CHROMEOS_STABLE_TAGS,
-    "android-desktop-all": ANDROID_DESKTOP_STABLE_TAGS,
+    "all": CHROMEOS_BRANCHES_TAGS + ANDROID_DESKTOP_BRANCHES_TAGS,
+    "chromeos-all": CHROMEOS_BRANCHES_TAGS,
+    "android-desktop-all": ANDROID_DESKTOP_BRANCHES_TAGS,
 }
 
 NO_DISPATCHING_NEEDED_TAGS = {
@@ -74,61 +74,67 @@ NO_DISPATCHING_NEEDED_TAGS = {
     "N/A",
 }
 
-SUPPORTED_STABLE_TAG_VALUES: set[str] = {
+SUPPORTED_BRANCHES_TAG_VALUES: set[str] = {
     *NO_DISPATCHING_NEEDED_TAGS,
-    *CHROMEOS_STABLE_TAGS,
-    *ANDROID_DESKTOP_STABLE_TAGS,
+    *CHROMEOS_BRANCHES_TAGS,
+    *ANDROID_DESKTOP_BRANCHES_TAGS,
     *GROUPS_MAPPING.keys(),
 }
 
 
-def _unravel_stable_tags(stable_tags: Iterable[str]) -> Iterator[str]:
+def _unravel_branches_tags(branches_tags: Iterable[str]) -> Iterator[str]:
     """Unravel & flatten group mappings in stable tags into branches."""
-    for stable_tag in stable_tags:
-        if stable_tag in GROUPS_MAPPING:
-            yield from _unravel_stable_tags(GROUPS_MAPPING[stable_tag])
-        elif stable_tag in SUPPORTED_STABLE_TAG_VALUES:
-            yield stable_tag
+    for branches_tag in branches_tags:
+        if branches_tag in GROUPS_MAPPING:
+            yield from _unravel_branches_tags(GROUPS_MAPPING[branches_tag])
+        elif branches_tag in SUPPORTED_BRANCHES_TAG_VALUES:
+            yield branches_tag
         else:
-            logger.error("Unsupported STABLE tag value: %s", stable_tag)
+            logger.error("Unsupported Branches tag value: %s", branches_tag)
 
 
 def _parse_kernel_dispatching_tags(
     commit_message: str,
 ) -> tuple[set[str], FixesTagT]:
-    """Parse STABLE and FIXES tag from commit message."""
+    """Parse Branches and Fixes git trailers from commit message.
+
+    The expected format for:
+    * Branches - a comma-separated list of target branches and groups,
+    * Fixes - SHA followed by commit message in parentheses and quotes,
+    for example: 86e5d3e6b77f ("CHROMIUM: Bug fix")
+    """
     (
         pseudoheaders,
         commit_message,
-    ) = gerrit.Pseudoheaders.from_commit_message(commit_message, separator="=")
+    ) = gerrit.Pseudoheaders.from_commit_message(commit_message, separator=":")
 
-    stable_tag_value = pseudoheaders.get(STABLE_TAG)
-    stable_tags = (
+    branches_tag_value = pseudoheaders.get(BRANCHES_TAG)
+    branches_tags = (
         set(
-            _unravel_stable_tags(
-                [tag.strip() for tag in stable_tag_value.split(",")]
+            _unravel_branches_tags(
+                [tag.strip() for tag in branches_tag_value.split(",")]
             )
         )
-        if stable_tag_value
+        if branches_tag_value
         else set()
     )
 
     fixes_tag = pseudoheaders.get(FIXES_TAG).strip()
     if fixes_tag:
-        _, fixes_commit_message = fixes_tag.split(" ", 1)
+        fixes_commit_message = fixes_tag.split('"')[1]
     else:
         fixes_commit_message = None
-    return stable_tags, fixes_commit_message
+    return branches_tags, fixes_commit_message
 
 
 def _validate_remote_name_match_stable_values(
     downstream: copybot_argparser.DownstreamConfig,
 ) -> None:
     """Ensure that downstream's remote names are in supported stable tags."""
-    if downstream.remote_name not in SUPPORTED_STABLE_TAG_VALUES:
+    if downstream.remote_name not in SUPPORTED_BRANCHES_TAG_VALUES:
         raise ValueError(
             "Downstream remote names in Kernel CL Dispatching use case should "
-            "match supported stable tag values. Invalid remote name on: "
+            "match supported Branches tag values. Invalid remote name on: "
             f"{downstream}"
         )
 
@@ -137,7 +143,7 @@ def _location_contains_fixed_commit(
     fixes_tag: str,
     downstream: copybot_argparser.DownstreamConfig,
 ) -> bool:
-    """Return whether a location contains the patch mentioned by FIXES tag."""
+    """Return whether a location contains the patch mentioned by Fixes tag."""
     revision_range = f"{downstream.cl_dispatcher_history_starts_with}..HEAD"
     grep_results = downstream.repo.log_raw(
         "--format=%H",
@@ -164,13 +170,13 @@ def should_rev_be_dispatched_to_location(
     _validate_remote_name_match_stable_values(downstream)
 
     commit_message = upstream.repo.get_commit_message(upstream_rev)
-    stable_tags, fixes_tag = _parse_kernel_dispatching_tags(commit_message)
+    branches_tags, fixes_tag = _parse_kernel_dispatching_tags(commit_message)
 
-    if stable_tags & NO_DISPATCHING_NEEDED_TAGS:
+    if branches_tags & NO_DISPATCHING_NEEDED_TAGS:
         # N/A tag was set, nothing to do
         return False
 
-    is_eligible = downstream.remote_name in stable_tags and (
+    is_eligible = downstream.remote_name in branches_tags and (
         fixes_tag is None
         or _location_contains_fixed_commit(fixes_tag, downstream)
     )

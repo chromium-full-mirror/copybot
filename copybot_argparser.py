@@ -447,16 +447,26 @@ def create_arg_parser() -> configargparse.ArgumentParser:
         default="downstream",
         help="Unique label of the downstream target used as a git remote name",
     )
+    parser.add_argument(
+        "--dev-mode-git-dir",
+        type=pathlib.Path,
+        help="Persistent directory storing cloned repos for local dev. If you"
+        " don't pass it, temporary directory will be created for the time of"
+        " running Copybot.",
+        default=None,
+    )
     return parser
 
 
 def parse_copybot_config(
-    git_root_dir: Union[str, "os.PathLike[str]"], argv: list[str] | None = None
+    git_root_dir: Union[str, "os.PathLike[str]"],
+    argv: list[str] | None = None,
+    opts: configargparse.Namespace = None,
 ) -> CopybotConfig:
     """Processes command line args and generates a config object."""
-    parser = create_arg_parser()
-
-    opts = parser.parse_args(argv)
+    if not opts:
+        parser = create_arg_parser()
+        opts = parser.parse_args(argv)
 
     # Strip quotes from string values
     for key, value in vars(opts).items():
@@ -485,7 +495,7 @@ def parse_copybot_config(
     ]
 
     upstream_git_dir = os.path.join(git_root_dir, opts.upstream_remote_name)
-    os.makedirs(upstream_git_dir)
+    os.makedirs(upstream_git_dir, exist_ok=True)
     upstream_repo = gerrit.GitRepo(upstream_git_dir)
 
     downstream_configs = []
@@ -502,7 +512,7 @@ def parse_copybot_config(
             downstream_git_dir = downstream_url
         else:
             downstream_git_dir = os.path.join(git_root_dir, remote_name)
-            os.makedirs(downstream_git_dir)
+            os.makedirs(downstream_git_dir, exist_ok=True)
 
         downstream_configs.append(
             DownstreamConfig(

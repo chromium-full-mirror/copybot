@@ -46,6 +46,7 @@ Usage: copybot.py [options...] upstream_repo:branch downstream_repo:branch
 from __future__ import annotations
 
 from collections.abc import Iterable
+import contextlib
 import itertools
 import json
 import logging
@@ -1414,17 +1415,33 @@ def write_json_error(path: pathlib.Path, err: Exception | None) -> None:
     path.write_text(json.dumps(err_json))
 
 
+@contextlib.contextmanager
+def get_git_root_dir(dev_mode_git_dir: pathlib.Path | None):
+    if dev_mode_git_dir:
+        dev_mode_git_dir.mkdir(parents=True, exist_ok=True)
+        yield dev_mode_git_dir
+    else:
+        with tempfile.TemporaryDirectory(".copybot") as git_root_dir:
+            yield git_root_dir
+
+
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(
         format="%(asctime)s %(levelname)s: %(message)s",
         level=logging.INFO,
     )
     logger.info("-- Starting CopyBot service --")
+
+    parser = copybot_argparser.create_arg_parser()
+    opts = parser.parse_args(argv)
+
     with (
-        tempfile.TemporaryDirectory(".copybot") as git_root_dir,
+        get_git_root_dir(opts.dev_mode_git_dir) as git_root_dir,
         tempfile.TemporaryDirectory("_patches") as patch_dir,
     ):
-        config = copybot_argparser.parse_copybot_config(git_root_dir, argv)
+        config = copybot_argparser.parse_copybot_config(
+            git_root_dir, argv, opts=opts
+        )
         err = None
         try:
             if config.generate_config:

@@ -747,7 +747,10 @@ class GitRepo:
         url: str,
         name: str,
     ) -> None:
-        self._run_git("remote", "add", name, url)
+        try:
+            self._run_git("remote", "get-url", name)
+        except subprocess.CalledProcessError:
+            self._run_git("remote", "add", name, url)
 
 
 def _pseudoheader_pattern(separator: str = ":"):

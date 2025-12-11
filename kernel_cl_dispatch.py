@@ -144,14 +144,23 @@ def _location_contains_fixed_commit(
     downstream: copybot_argparser.DownstreamConfig,
 ) -> bool:
     """Return whether a location contains the patch mentioned by Fixes tag."""
-    revision_range = f"{downstream.cl_dispatcher_history_starts_with}..HEAD"
-    grep_results = downstream.repo.log_raw(
-        "--format=%H",
-        "--ancestry-path",
-        revision_range,
-        "--grep",
-        f"{fixes_tag}$",
-    )
+    if downstream.cl_dispatcher_history_starts_with:
+        revision_range = f"{downstream.cl_dispatcher_history_starts_with}..HEAD"
+        grep_results = downstream.repo.log_raw(
+            "--format=%H",
+            "--ancestry-path",
+            revision_range,
+            "--grep",
+            f"{fixes_tag}$",
+        )
+    else:
+        grep_results = downstream.repo.log_raw(
+            f"{downstream.remote_name}/{downstream.branch}",
+            "--first-parent",
+            "--format=%H",
+            "--grep",
+            f"{fixes_tag}$",
+        )
     if not grep_results:
         logger.info(
             '[Kernel CL Dispatcher] Could not find in commit "%s" in %s',

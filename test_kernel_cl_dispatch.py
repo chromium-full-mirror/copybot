@@ -287,6 +287,30 @@ def test_select_kernel_cl_dispatching_locations_empty_branches_tag(
     assert result == []
 
 
+def test_location_contains_fixed_commit_no_history_start() -> None:
+    downstream_config = test_copybot.cons_default_downstream_config(
+        remote_name="chromeos-5.4"
+    )
+    downstream_config.repo = mock.MagicMock()
+    downstream_config.cl_dispatcher_history_starts_with = ""
+
+    # Mock grep results to return a value
+    downstream_config.repo.log_raw.return_value = "some_hash"
+
+    result = kernel_cl_dispatch._location_contains_fixed_commit(
+        "fixes_tag_value", downstream_config
+    )
+
+    assert result is True
+    downstream_config.repo.log_raw.assert_called_once_with(
+        "chromeos-5.4/main",
+        "--first-parent",
+        "--format=%H",
+        "--grep",
+        "fixes_tag_value$",
+    )
+
+
 class TestKernelClDispatcherIntegration:
     """Integration tests for the Kernel CL Dispatcher."""
 

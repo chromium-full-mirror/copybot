@@ -147,7 +147,7 @@ def _location_contains_fixed_commit(
     if downstream.cl_dispatcher_history_starts_with:
         revision_range = f"{downstream.cl_dispatcher_history_starts_with}..HEAD"
         grep_results = downstream.repo.log_raw(
-            "--format=%H",
+            "--format=%s",
             "--ancestry-path",
             revision_range,
             "--grep",
@@ -157,7 +157,7 @@ def _location_contains_fixed_commit(
         grep_results = downstream.repo.log_raw(
             f"{downstream.remote_name}/{downstream.branch}",
             "--first-parent",
-            "--format=%H",
+            "--format=%s",
             "--grep",
             f"{fixes_tag}$",
         )

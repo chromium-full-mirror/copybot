@@ -373,7 +373,7 @@ def find_commits_to_copy(
     )
 
     counter = 0
-    pending_to_submit = False
+    skip_cq_from_parse_logic = False
     for rev in upstream_hashes:
         # Early exit if limit reached to avoid inadvertent continuation
         if counter > upstream.history_limit > 0:
@@ -436,6 +436,13 @@ def find_commits_to_copy(
         filtered_commit_files = []
 
         for path in commit_files:
+            file_name = os.path.basename(path)
+            if file_name == "OWNERS" or file_name.startswith("OWNERS."):
+                logger.info(
+                    "Refusing to +2 because an OWNERS file was touched in %s",
+                    rev,
+                )
+                skip_cq_from_parse_logic = True
             if not any(
                 re.fullmatch(p, path) for p in config.filter_file_patterns or []
             ):
@@ -473,7 +480,7 @@ def find_commits_to_copy(
                 )
                 continue
         if pending_changes and rev in pending_changes:
-            pending_to_submit = True
+            skip_cq_from_parse_logic = True
         commits_to_copy.append(rev)
 
     return (
@@ -481,7 +488,7 @@ def find_commits_to_copy(
         commit_files_map,
         skipped_files_map,
         copybot_skip_cls,
-        pending_to_submit,
+        skip_cq_from_parse_logic,
     )
 
 
@@ -1255,7 +1262,7 @@ def run_copybot(
             commit_files_map,
             skipped_files_map,
             copybot_skip_cls,
-            pending_to_submit,
+            skip_cq_from_parse_logic,
         ) = find_commits_to_copy(
             config,
             config.upstream,
@@ -1318,7 +1325,9 @@ def run_copybot(
             logger.info("Nothing to push!")
         else:
             skip_cq = (
-                any(conflicted_revs) or pending_to_submit or any(skipped_revs)
+                any(conflicted_revs)
+                or skip_cq_from_parse_logic
+                or any(skipped_revs)
             )
             push_changes_to_downstream(config, downstream, skip_cq)
 

@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 _COMMIT_HASH_PATTERN = re.compile(r"\b[0-9a-f]{40}\b")
 
 # Matches a full 40-character parent commit hash.
-_PARENT_COMMIT_HASH_PATTERN = re.compile(r"parent \b[0-9a-f]{40}\b")
+_PARENT_COMMIT_HASH_PATTERN = re.compile(r"(?<=parent )\b[0-9a-f]{40}\b")
 
 
 class MergeConflictBehavior(enum.Enum):
@@ -232,6 +232,11 @@ class GitRepoInterface(Protocol):
         url: str,
         name: str,
     ) -> None: ...
+
+    def is_merge_commit(
+        self,
+        rev: str,
+    ) -> bool: ...
 
 
 class GitRepo:
@@ -522,20 +527,21 @@ class GitRepo:
             worktree.add("", stage=True, force=True)
             return worktree.commit(old_message)
 
+    def get_parents(
+        self,
+        rev: str = "HEAD",
+    ) -> list[str]:
+        extra_args = ["-p"]
+        result = self._run_git("cat-file", rev, *extra_args)
+        return re.findall(
+            _PARENT_COMMIT_HASH_PATTERN, str(result.stdout.rstrip())
+        )
+
     def is_merge_commit(
         self,
         rev: str = "HEAD",
-    ):
-        extra_args = ["-p"]
-        result = self._run_git("cat-file", rev, *extra_args)
-        return (
-            len(
-                re.findall(
-                    _PARENT_COMMIT_HASH_PATTERN, str(result.stdout.rstrip())
-                )
-            )
-            > 1
-        )
+    ) -> bool:
+        return len(self.get_parents(rev)) > 1
 
     def cherry_pick(
         self,
@@ -613,34 +619,64 @@ class GitRepo:
                 continue
             else:
                 return
-        patch = self.format_patch(
-            rev,
-            patch_dir,
-            1,
-            self.get_subtree_lowest_working_dir(upstream_subtree),
-        )
-        try:
-            self.apply(
-                patch=patch,
-                path=self.get_subtree_lowest_working_dir(downstream_subtree),
-                include_paths=include_paths,
-                exclude_paths=exclude_paths,
+        if self.is_merge_commit(rev):
+            applied_cl = False
+            for parent in self.get_parents(rev):
+                try:
+                    patch = pathlib.Path(patch_dir) / f"{parent}_{rev}.patch"
+                    result = self._run_git(
+                        "diff", parent, rev, f"--output={patch}"
+                    )
+                    patch_content = result.stdout.rstrip()
+                    print(patch_content)
+                    self.apply(
+                        patch=patch,
+                        path=self.get_subtree_lowest_working_dir(
+                            downstream_subtree
+                        ),
+                        include_paths=include_paths,
+                        exclude_paths=exclude_paths,
+                    )
+                except Exception as e:
+                    print("Got exception:")
+                    print(e)
+                    continue
+                else:
+                    applied_cl = True
+                    break
+            if not applied_cl:
+                raise MergeConflictError()
+        else:
+            patch = self.format_patch(
+                rev,
+                patch_dir,
+                1,
+                self.get_subtree_lowest_working_dir(upstream_subtree),
             )
-        except subprocess.CalledProcessError as e:
-            if not allow_conflict:
-                raise MergeConflictError() from e
-            if (
-                'No valid patches in input (allow with "--allow-empty")'
-                in e.stderr
-            ):
-                self.commit(
-                    self.get_commit_message(rev),
-                    amend=False,
-                    sign_off=False,
-                    stage=False,
-                    allow_empty=True,
+            try:
+                self.apply(
+                    patch=patch,
+                    path=self.get_subtree_lowest_working_dir(
+                        downstream_subtree
+                    ),
+                    include_paths=include_paths,
+                    exclude_paths=exclude_paths,
                 )
-                raise EmptyCommitError() from e
+            except subprocess.CalledProcessError as e:
+                if not allow_conflict:
+                    raise MergeConflictError() from e
+                if (
+                    'No valid patches in input (allow with "--allow-empty")'
+                    in e.stderr
+                ):
+                    self.commit(
+                        self.get_commit_message(rev),
+                        amend=False,
+                        sign_off=False,
+                        stage=False,
+                        allow_empty=True,
+                    )
+                    raise EmptyCommitError() from e
         self.add(downstream_subtree, stage=True, force=True)
         try:
             self.commit(

@@ -442,13 +442,14 @@ def find_commits_to_copy(
                 filtered_commit_files.append(path)
 
         if not filtered_commit_files:
-            logger.info(
-                "Skip commit %s due to empty file list after filtering "
-                "(before filtering was %r)",
-                rev,
-                commit_files,
-            )
-            continue
+            if not upstream.repo.is_merge_commit(rev):
+                logger.info(
+                    "Skip commit %s due to empty file list after filtering "
+                    "(before filtering was %r)",
+                    rev,
+                    commit_files,
+                )
+                continue
 
         commit_files_map[rev] = filtered_commit_files
         skipped_files_map[rev] = [
@@ -1396,7 +1397,7 @@ def main(argv: list[str] | None = None) -> None:
             if config.json_out:
                 write_json_error(config.json_out, err)
 
-        logger.info("-- CopyBot finished successfully --")
+    logger.info("-- CopyBot finished successfully --")
 
 
 if __name__ == "__main__":

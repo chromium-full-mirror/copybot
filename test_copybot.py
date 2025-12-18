@@ -206,6 +206,13 @@ Change-Id: {CHANGE_ID}
         del url
         del name
 
+    def is_merge_commit(
+        self,
+        rev: str,
+    ) -> bool:
+        del rev
+        return False
+
 
 class GerritMock:
     """Gerrit mock for testing purposes."""

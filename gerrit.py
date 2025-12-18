@@ -451,7 +451,14 @@ class GitRepo:
         extra_args = []
         if relative_path and str(relative_path) != ".":
             extra_args.append(f"--relative={relative_path}")
-        extra_args.extend([f"-{num}", rev, f"--output-directory={output_path}"])
+        extra_args.extend(
+            [
+                f"-{num}",
+                "--full-index",
+                rev,
+                f"--output-directory={output_path}",
+            ]
+        )
 
         result = self._run_git("format-patch", *extra_args)
         return pathlib.Path(result.stdout.rstrip())
@@ -625,7 +632,12 @@ class GitRepo:
                 try:
                     patch = pathlib.Path(patch_dir) / f"{parent}_{rev}.patch"
                     result = self._run_git(
-                        "diff", parent, rev, f"--output={patch}"
+                        "diff",
+                        "--full-index",
+                        "--binary",
+                        parent,
+                        rev,
+                        f"--output={patch}",
                     )
                     patch_content = result.stdout.rstrip()
                     print(patch_content)

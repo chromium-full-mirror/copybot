@@ -608,6 +608,8 @@ class GitRepo:
             cherry_pick_flag_list += [
                 ["-m", "1"],
                 ["-m", "1", "-Xpatience"],
+                ["-m", "2"],
+                ["-m", "2", "-Xpatience"],
             ]
         else:
             cherry_pick_flag_list += [
@@ -625,34 +627,40 @@ class GitRepo:
             else:
                 return
         if self.is_merge_commit(rev):
-            parent = self.get_parents(rev)[0]
-            try:
-                patch = pathlib.Path(patch_dir) / f"{parent}_{rev}.patch"
-                result = self._run_git(
-                    "diff",
-                    "--full-index",
-                    "--binary",
-                    parent,
-                    rev,
-                    f"--output={patch}",
-                )
-                patch_content = result.stdout.rstrip()
-                print(patch_content)
-                self.apply(
-                    patch=patch,
-                    path=self.get_subtree_lowest_working_dir(
-                        downstream_subtree
-                    ),
-                    include_paths=include_paths,
-                    exclude_paths=exclude_paths,
-                )
-            except subprocess.CalledProcessError as e:
-                if (
-                    'No valid patches in input (allow with "--allow-empty")'
-                    in e.stderr
-                ):
-                    raise EmptyCommitError() from e
-                raise MergeConflictsError() from e
+            applied_cl = False
+            for parent in self.get_parents(rev):
+                try:
+                    patch = pathlib.Path(patch_dir) / f"{parent}_{rev}.patch"
+                    result = self._run_git(
+                        "diff",
+                        "--full-index",
+                        "--binary",
+                        parent,
+                        rev,
+                        f"--output={patch}",
+                    )
+                    patch_content = result.stdout.rstrip()
+                    print(patch_content)
+                    self.apply(
+                        patch=patch,
+                        path=self.get_subtree_lowest_working_dir(
+                            downstream_subtree
+                        ),
+                        include_paths=include_paths,
+                        exclude_paths=exclude_paths,
+                    )
+                except subprocess.CalledProcessError as e:
+                    if (
+                        'No valid patches in input (allow with "--allow-empty")'
+                        in e.stderr
+                    ):
+                        raise EmptyCommitError() from e
+                    continue
+                else:
+                    applied_cl = True
+                    break
+            if not applied_cl:
+                raise MergeConflictError()
         else:
             patch = self.format_patch(
                 rev,

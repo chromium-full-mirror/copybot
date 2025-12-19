@@ -242,6 +242,34 @@ may be of use:
 - Adding reviewers.
 - Adding CC.
 
+#### Testing copybot changes locally
+
+To test how a copybot change would have handled a problematic commit in the past
+you can run with a local dir as the downstream, and reset to the commit before
+the one you want to test.
+
+For example, I want to test how copybot will handle commit
+`508ea4e12a3ca06b50f3feff0edab1c59a745856` (from upstream) in the pigweed repo,
+so I find the downstream parent to that commit, and create a `main` branch
+locally at that parent, in this case `1080d6e8`, then setup the local dir and
+run copybot starting at my problematic commit, and stopping after 5 commits.
+
+```shell
+cd ~/chromiumos/src/third_party/pigweed
+git branch -d main
+git checkout -b main 1080d6e8
+git remote remove downstream
+git remote remove upstream
+~/chromiumos/infra/copybot/copybot.py --dry-run \
+  -c ~/chromiumos/infra/copybot/config/pigweed-main-copybot-downstream.ini \
+  --upstream-history-starts-with 508ea4e12a3ca06b50f3feff0edab1c59a745856 \
+  --downstream-url=$HOME/chromiumos/src/third_party/pigweed --limit=5 |& less
+git log --name-only main..HEAD
+```
+
+If you then want to see more details on the created commits, use `git show
+<hash>`.
+
 ### Establishing historical relationships with CopyBot
 
 As alluded to in [Copybot's Design](#copybot_s-design), a downstream

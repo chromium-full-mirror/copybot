@@ -142,7 +142,9 @@ def find_first_unmerged_rev(
     )
     downstream_hashes.reverse()
 
-    include_change_id = are_repos_related(upstream, downstream)
+    include_change_id = (
+        are_repos_related(upstream, downstream) and not config.ignore_change_id
+    )
     logger.info("Downstream hashes: %s", downstream_hashes)
     found_relationship = False
     counter = 0
@@ -220,7 +222,9 @@ def find_last_merged_rev(
         num=downstream.history_length,
     )
 
-    include_change_id = are_repos_related(upstream, downstream)
+    include_change_id = (
+        are_repos_related(upstream, downstream) and not config.ignore_change_id
+    )
 
     for rev in downstream_hashes:
         commit_message = downstream.repo.get_commit_message(rev)
@@ -500,6 +504,7 @@ def rewrite_commit_message(
     skipped_files=(),
     sign_off: bool = False,
     additional_pseudoheaders: Iterable[str] = (),
+    ignore_change_id: bool = False,
 ) -> tuple[str, str]:
     """Reword the commit at HEAD with appropriate metadata.
 
@@ -512,6 +517,8 @@ def rewrite_commit_message(
         sign_off: True if Signed-off-by should be added to the commit message.
         additional_pseudoheaders: Psuedoheaders to be added to the commit
             message.
+        ignore_change_id: If true, will override all other change-id behavior.
+            change_id's will not be maintained across cherry-picks.
 
     Returns:
         * Reworded commit message
@@ -528,7 +535,7 @@ def rewrite_commit_message(
             tmp_commit_msg.insert(line, msg)
         commit_message = "\n".join(tmp_commit_msg)
 
-    if are_repos_related(upstream, downstream):
+    if are_repos_related(upstream, downstream) and not ignore_change_id:
         if "Change-Id" not in downstream.keep_pseudoheaders:
             downstream.keep_pseudoheaders.append("Change-Id")
 
@@ -922,6 +929,7 @@ def commit_with_conflicts(
                 *config.add_pseudoheaders,
                 "Commit: false",
             ],
+            ignore_change_id=config.ignore_change_id,
         )
     return False
 
@@ -1048,6 +1056,7 @@ def cherry_pick_commits_to_downstream(
                 skipped_files=skipped_files_map[rev],
                 sign_off=config.add_signed_off_by,
                 additional_pseudoheaders=config.add_pseudoheaders,
+                ignore_change_id=config.ignore_change_id,
             )
         current_change = downstream.repo.log(num=1, fmt="%H")
         logger.info("Revision %s cherry-picked as %s", rev, current_change)

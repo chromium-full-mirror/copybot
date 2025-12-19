@@ -95,6 +95,7 @@ def cons_default_copybot_config() -> copybot_argparser.CopybotConfig:
         enable_kernel_cl_dispatcher=False,
         first_unmerged=False,
         add_pseudoheaders=[],
+        ignore_change_id=False,
     )
     return copybot_config
 

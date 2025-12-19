@@ -133,6 +133,7 @@ class CopybotConfig:
     topic: str
     json_out: pathlib.Path
     dry_run: bool
+    ignore_change_id: bool
     # File paths that should be filtered out. CLs will be modified to drop
     # these paths.
     filter_file_patterns: list[re.Pattern]
@@ -265,6 +266,11 @@ def create_arg_parser() -> configargparse.ArgumentParser:
     parser.add_argument(
         "--dry-run",
         help="Don't push",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--ignore-change-id",
+        help="Don't copy upstream change-id",
         action="store_true",
     )
     parser.add_argument(
@@ -541,6 +547,7 @@ def parse_copybot_config(
         topic=opts.topic,
         json_out=opts.json_out,
         dry_run=opts.dry_run,
+        ignore_change_id=opts.ignore_change_id,
         filter_file_patterns=filter_file_patterns,
         exclude_file_patterns=exclude_file_patterns,
         exclude_method=opts.exclude_method,

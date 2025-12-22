@@ -1359,7 +1359,15 @@ def run_copybot(
                     "Could not update up/down stream history origins %s", e
                 )
         else:
-            logging.info("Skipping up/down stream history origins update")
+            logging.info(
+                "Skipping up/down stream history origins update due to:"
+            )
+            if any(conflicted_revs):
+                logging.info("Conflicted Revs")
+            if skip_cq_from_parse_logic:
+                logging.info("Parsing logic")
+            if any(skipped_revs):
+                logging.info("Skipped Revs")
 
         log_unapplied_commits(
             config.upstream.repo,

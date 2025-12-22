@@ -355,7 +355,7 @@ def find_commits_to_copy(
         ValueError: If the provided last merged commit hash does not
            exist in upstream commit history.
     """
-    commits_to_copy = []
+    commits_to_copy: list[str] = []
     commit_files_map = {}
     skipped_files_map = {}
     copybot_skip_cls = []
@@ -378,12 +378,26 @@ def find_commits_to_copy(
 
     counter = 0
     skip_cq_from_parse_logic = False
+    reverse_search = upstream.history_limit == 0 and config.first_unmerged
+    if reverse_search:
+        upstream_hashes.reverse()
+        first_index = upstream_hashes.index(upstream.history_starts_with)
+        del upstream_hashes[:first_index]
+
     for rev in upstream_hashes:
         # Early exit if limit reached to avoid inadvertent continuation
         if counter > upstream.history_limit > 0:
             logger.info("Hit upstream limit of %s", upstream.history_limit)
             break
 
+        if 0 < downstream.limit < len(commits_to_copy) and reverse_search:
+            logger.warning(
+                "Limiting commits to copy from %s to %s",
+                len(commits_to_copy),
+                downstream.limit,
+            )
+            commits_to_copy.reverse()
+            break
         if is_copybot_job_skipped(config, rev):
             continue
 

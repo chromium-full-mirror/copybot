@@ -192,12 +192,18 @@ def generate_config(argv: Optional[List[str]] = None) -> None:
         for name, value in vars(opts).items():
             if (
                 name in exclude_args
-                or not value
+                or value is None
                 or value == dest_to_default[name]
             ):
                 continue
-            if isinstance(value, list):
+            if isinstance(value, (list, set)):
+                if len(value) == 0:
+                    continue
                 value = "[%s]" % ", ".join([f'"{item}"' for item in value])
+            elif isinstance(value, dict):
+                if len(value) == 0:
+                    continue
+                value = f'"{value}"'
             elif isinstance(value, str) and name not in no_quote_keys:
                 value = f'"{value}"'
             outfile.write(f"{dest_to_option[name]} = {value}\n")

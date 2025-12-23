@@ -1364,6 +1364,10 @@ def run_copybot(
                 config.upstream.history_starts_with,
                 "--downstream-history-starts-with",
                 downstream.history_starts_with,
+                "--upstream-history-limit",
+                str(config.upstream.history_limit),
+                "--downstream-history-limit",
+                str(downstream.history_limit),
             ]
             try:
                 copybot_argparser.generate_config(update_config_args)

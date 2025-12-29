@@ -496,7 +496,7 @@ def test_find_commits_to_copy(copybot_config):
         copybot_config.upstream,
         copybot_config.downstreams[0],
         PENDING_CHANGES,
-    ) == ([REVISION], {REVISION: ["file.c"]}, {REVISION: []}, [], True)
+    ) == ([REVISION], {REVISION: ["file.c"]}, {REVISION: []}, [], True, [])
 
 
 def test_get_downstreamed_list__mapped_changed_id(copybot_config) -> None:

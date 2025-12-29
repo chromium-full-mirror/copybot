@@ -328,7 +328,12 @@ def find_commits_to_copy(
     abandoned_changes: dict[str, gerrit.GerritClInfo] | None = None,
     include_change_id: bool = False,
 ) -> tuple[
-    list[str], dict[str, list[str]], dict[str, list[str]], list[str], bool
+    list[str],
+    dict[str, list[str]],
+    dict[str, list[str]],
+    list[str],
+    bool,
+    list[str],
 ]:
     """Find the commits to copy to downstream.
 
@@ -351,6 +356,7 @@ def find_commits_to_copy(
         copybot-skip hashtag.
         * A boolean denoting if there are pending changes that should be
         acted upon.
+        * A list of CL's which have touched owners files
 
     Raises:
         ValueError: If the provided last merged commit hash does not
@@ -359,6 +365,7 @@ def find_commits_to_copy(
     commits_to_copy: list[str] = []
     commit_files_map = {}
     skipped_files_map = {}
+    owners_cls = []
     copybot_skip_cls = []
 
     upstream_hashes = upstream.repo.log_hashes(
@@ -456,15 +463,15 @@ def find_commits_to_copy(
 
         for path in commit_files:
             file_name = os.path.basename(path)
-            if file_name == "OWNERS" or file_name.startswith("OWNERS."):
-                logger.info(
-                    "Refusing to +2 because an OWNERS file was touched in %s",
-                    rev,
-                )
-                skip_cq_from_parse_logic = True
             if not any(
                 re.fullmatch(p, path) for p in config.filter_file_patterns or []
             ):
+                if file_name == "OWNERS" or file_name.startswith("OWNERS."):
+                    logger.info(
+                        "OWNERS file was touched in %s",
+                        rev,
+                    )
+                    owners_cls.append(rev)
                 filtered_commit_files.append(path)
 
         if not filtered_commit_files:
@@ -508,6 +515,7 @@ def find_commits_to_copy(
         skipped_files_map,
         copybot_skip_cls,
         skip_cq_from_parse_logic,
+        owners_cls,
     )
 
 
@@ -958,7 +966,7 @@ def cherry_pick_commits_to_downstream(
     commits_to_copy: list[str],
     updated_commits_to_copy: list[str],
     pending_changes: dict[str, gerrit.GerritClInfo],
-) -> tuple[list[str], list[str], list[str]]:
+) -> tuple[list[str], list[str], list[str], list[str]]:
     """Cherry pick commits to downstream.
 
     Args:
@@ -977,10 +985,12 @@ def cherry_pick_commits_to_downstream(
         * A list of unapplied commits due to conflicts.
         * A list of unapplied commits as they were empty.
         * A list of unapplied commits due to merge conflicts.
+        * A list of applied commits.
     """
     conflicted_revs = []
     empty_revs = []
     skipped_revs = []
+    applied_cls = []
 
     for i, rev in enumerate(reversed(updated_commits_to_copy)):
         logger.info(
@@ -1075,7 +1085,8 @@ def cherry_pick_commits_to_downstream(
             )
         current_change = downstream.repo.log(num=1, fmt="%H")
         logger.info("Revision %s cherry-picked as %s", rev, current_change)
-    return conflicted_revs, empty_revs, skipped_revs
+        applied_cls.append(rev)
+    return conflicted_revs, empty_revs, skipped_revs, applied_cls
 
 
 def log_empty_commits(
@@ -1287,6 +1298,7 @@ def run_copybot(
             skipped_files_map,
             copybot_skip_cls,
             skip_cq_from_parse_logic,
+            owners_cls,
         ) = find_commits_to_copy(
             config,
             config.upstream,
@@ -1334,6 +1346,7 @@ def run_copybot(
             conflicted_revs,
             empty_revs,
             skipped_revs,
+            applied_cls,
         ) = cherry_pick_commits_to_downstream(
             config,
             downstream,
@@ -1352,6 +1365,7 @@ def run_copybot(
                 any(conflicted_revs)
                 or skip_cq_from_parse_logic
                 or any(skipped_revs)
+                or any(cl in owners_cls for cl in applied_cls)
             )
             push_changes_to_downstream(config, downstream, skip_cq)
 

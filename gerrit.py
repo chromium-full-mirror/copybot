@@ -366,7 +366,7 @@ class GitRepo:
         self, rev: str = "HEAD", files: Iterable[str] = (), patch_dir=""
     ) -> str:
         """Do a `git show`."""
-        extra_args = ["--output", f"{patch_dir}/filtered.patch"]
+        extra_args = ["--binary", "--output", f"{patch_dir}/filtered.patch"]
         if files:
             extra_args.append("--")
             extra_args.extend(files)
@@ -448,7 +448,7 @@ class GitRepo:
         Returns:
             Path of the output patch.
         """
-        extra_args = []
+        extra_args = ["--binary"]
         if relative_path and str(relative_path) != ".":
             extra_args.append(f"--relative={relative_path}")
         extra_args.extend(

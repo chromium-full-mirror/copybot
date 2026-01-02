@@ -63,6 +63,10 @@
 #   name: "infra/python/wheels/pyyaml-py3"
 #   version: "version:6.0.1"
 # >
+# wheel: <
+#   name: "infra/python/wheels/protobuf-py3"
+#   version: "version:6.32.1"
+# >
 # [VPYTHON:END]
 
 """Wrapper for stable version of pytest that we control.

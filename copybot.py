@@ -41,11 +41,21 @@ Usage: copybot.py [options...] upstream_repo:branch downstream_repo:branch
 #   name: "infra/python/wheels/pyyaml-py3"
 #   version: "version:6.0.1"
 # >
+# wheel: <
+#   name: "infra/python/wheels/protobuf-py3"
+#   version: "version:6.32.1"
+# >
+# wheel: <
+#   name: "infra/python/wheels/types-protobuf-py3"
+#   version: "version:6.32.1.20251105"
+# >
 # [VPYTHON:END]
 
 from __future__ import annotations
 
+import ast
 from collections.abc import Iterable
+import configparser
 import contextlib
 import itertools
 import json
@@ -59,7 +69,19 @@ from typing import Any, Final
 
 import copybot_argparser
 import gerrit
+
+# pylint: disable=import-error
+from google.protobuf import text_format
+
+# pylint: enable=import-error
 import kernel_cl_dispatch
+
+# pylint: disable=no-name-in-module
+from proto.copybot_job_pb2 import CopybotJob
+from proto.copybot_job_pb2 import CopybotJobs
+
+
+# pylint: enable=no-name-in-module
 
 
 PRESERVE_TAG: Final[str] = "copybot-preserve"
@@ -1439,6 +1461,60 @@ def get_git_root_dir(dev_mode_git_dir: pathlib.Path | None):
             yield git_root_dir
 
 
+def create_luci_config(path: pathlib.Path):
+    group_configs = []
+    luci_jobs = []
+    for fs_entry in os.listdir(path):
+        if os.path.isfile(path / fs_entry):
+            if fs_entry != "group_config.ini":
+                logger.info("Adding %s", fs_entry)
+                group_configs.append(fs_entry)
+        else:
+            logger.info("Checking dir %s", fs_entry)
+            luci_jobs.extend(create_luci_config(path / fs_entry))
+    config = configparser.ConfigParser()
+    group_config_file = path / "group_config.ini"
+    found_files = config.read(group_config_file)
+    logger.debug("Checking %s", group_config_file)
+    if not found_files:
+        return luci_jobs
+    logger.info("Read config from %s: %s", group_config_file, config)
+    luci_jobs.append(
+        CopybotJob(
+            notify_email=ast.literal_eval(config.get("copybot", "notify")),
+            group_name=path.name,
+            offset_hour_of_day=config.getint("copybot", "offset"),
+            interval=config.getint("copybot", "interval"),
+            timeout=config.getint("copybot", "timeout"),
+            config_file=group_configs,
+        )
+    )
+    return luci_jobs
+
+
+def create_luci_configs(
+    config_dir: pathlib.Path = pathlib.Path(__file__).resolve().parent
+    / "config",
+):
+    luci_cfgs = create_luci_config(config_dir)
+    file_path = (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "config"
+        / "misc_builders"
+        / "copybot_jobs.txtpb"
+    )
+    with open(
+        file_path,
+        "w",
+        encoding="utf-8",
+    ) as file_handle:
+        file_handle.write(
+            text_format.MessageToString(CopybotJobs(copybot_jobs=luci_cfgs))
+        )
+
+    # COMMIT AND UPLOAD
+
+
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(
         format="%(asctime)s %(levelname)s: %(message)s",
@@ -1461,6 +1537,13 @@ def main(argv: list[str] | None = None) -> None:
             if config.generate_config:
                 copybot_argparser.generate_config(argv)
                 upload_updated_config(config)
+            elif opts.gen_luci_jobs:
+                create_luci_configs()
+                logger.info(
+                    "LUCI CFG has been generated at infra/config/misc_builders"
+                )
+                logger.info("Please commit and upload it")
+                return
             else:
                 run_copybot(gerrit.Gerrit, config, patch_dir)
         except NothingToDo as e:

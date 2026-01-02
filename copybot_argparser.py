@@ -455,6 +455,11 @@ def create_arg_parser() -> configargparse.ArgumentParser:
         " running Copybot.",
         default=None,
     )
+    parser.add_argument(
+        "--gen-luci-jobs",
+        help="Generate LUCI config jobs",
+        action="store_true",
+    )
     return parser
 
 

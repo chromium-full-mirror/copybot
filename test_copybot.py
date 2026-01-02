@@ -622,7 +622,7 @@ def test_push_changes_to_downstream(repo_push, copybot_config) -> None:
 class TestGenerateConfig:
     """Tests for generate_config function."""
 
-    CONFIG_FILE_PATH = "./config/coreboot-main-copybot-downstream.ini"
+    CONFIG_FILE_PATH = "./config/coreboot/main.ini"
 
     def setup_method(self):
         """Set up for test cases, create a temporary directory"""

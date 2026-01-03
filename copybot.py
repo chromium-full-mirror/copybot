@@ -1464,17 +1464,28 @@ def get_git_root_dir(dev_mode_git_dir: pathlib.Path | None):
 def create_luci_config(path: pathlib.Path):
     group_configs = []
     luci_jobs = []
-    for fs_entry in os.listdir(path):
-        if os.path.isfile(path / fs_entry):
-            if fs_entry != "group_config.ini":
-                logger.info("Adding %s", fs_entry)
-                group_configs.append(fs_entry)
-        else:
-            logger.info("Checking dir %s", fs_entry)
-            luci_jobs.extend(create_luci_config(path / fs_entry))
     config = configparser.ConfigParser()
     group_config_file = path / "group_config.ini"
     found_files = config.read(group_config_file)
+    manual_jobs = []
+    if found_files:
+        manual_jobs = ast.literal_eval(
+            config.get("copybot", "manual_trigger", fallback="[]")
+        )
+        print(manual_jobs)
+    manual_luci_jobs = []
+    for fs_entry in os.listdir(path):
+        if os.path.isfile(path / fs_entry):
+            if fs_entry != "group_config.ini":
+                if pathlib.Path(fs_entry).stem in manual_jobs:
+                    logger.info("Adding %s as a manual job", fs_entry)
+                    manual_luci_jobs.append(fs_entry)
+                else:
+                    logger.info("Adding %s", fs_entry)
+                    group_configs.append(fs_entry)
+        else:
+            logger.info("Checking dir %s", fs_entry)
+            luci_jobs.extend(create_luci_config(path / fs_entry))
     logger.debug("Checking %s", group_config_file)
     if not found_files:
         return luci_jobs
@@ -1489,6 +1500,17 @@ def create_luci_config(path: pathlib.Path):
             config_file=group_configs,
         )
     )
+    if manual_luci_jobs:
+        luci_jobs.append(
+            CopybotJob(
+                notify_email=ast.literal_eval(config.get("copybot", "notify")),
+                group_name=path.name,
+                offset_hour_of_day=0,
+                interval=0,
+                timeout=config.getint("copybot", "timeout"),
+                config_file=manual_luci_jobs,
+            )
+        )
     return luci_jobs
 
 

@@ -1490,9 +1490,13 @@ def create_luci_config(path: pathlib.Path):
     if not found_files:
         return luci_jobs
     logger.info("Read config from %s: %s", group_config_file, config)
+    group_configs.sort()
+    manual_luci_jobs.sort()
+    notify_list = ast.literal_eval(config.get("copybot", "notify"))
+    notify_list.sort()
     luci_jobs.append(
         CopybotJob(
-            notify_email=ast.literal_eval(config.get("copybot", "notify")),
+            notify_email=notify_list,
             group_name=path.name,
             offset_hour_of_day=config.getint("copybot", "offset"),
             interval=config.getint("copybot", "interval"),
@@ -1503,7 +1507,7 @@ def create_luci_config(path: pathlib.Path):
     if manual_luci_jobs:
         luci_jobs.append(
             CopybotJob(
-                notify_email=ast.literal_eval(config.get("copybot", "notify")),
+                notify_email=notify_list,
                 group_name=path.name,
                 offset_hour_of_day=0,
                 interval=0,
@@ -1519,6 +1523,8 @@ def create_luci_configs(
     / "config",
 ):
     luci_cfgs = create_luci_config(config_dir)
+    copybot_proto = CopybotJobs(copybot_jobs=luci_cfgs)
+    copybot_proto.copybot_jobs.sort(key=lambda item: item.group_name)
     file_path = (
         pathlib.Path(__file__).resolve().parent.parent
         / "config"
@@ -1530,9 +1536,7 @@ def create_luci_configs(
         "w",
         encoding="utf-8",
     ) as file_handle:
-        file_handle.write(
-            text_format.MessageToString(CopybotJobs(copybot_jobs=luci_cfgs))
-        )
+        file_handle.write(text_format.MessageToString(copybot_proto))
 
     # COMMIT AND UPLOAD
 

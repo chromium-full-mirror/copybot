@@ -154,49 +154,37 @@ def find_first_unmerged_rev(
         exclude_file_patterns=config.exclude_file_patterns,
         num=upstream.history_length,
     )
-    upstream_change_ids = fetch_upstream_change_ids(
-        upstream.repo, upstream_hashes, upstream.history_limit
-    )
     downstream_hashes = downstream.repo.log_hashes(
         revision_range=downstream.head_sha,
         subtree=downstream.subtree,
         exclude_file_patterns=config.exclude_file_patterns,
         num=downstream.history_length,
     )
-    downstream_hashes.reverse()
 
-    include_change_id = (
-        are_repos_related(upstream, downstream) and not config.ignore_change_id
-    )
-    logger.info("Downstream hashes: %s", downstream_hashes)
-    found_relationship = False
     counter = 0
-    found_origin = ""
-    found_rev = ""
     for rev in downstream_hashes:
         logger.info("Checking downstream hash: %s", rev)
         commit_message = downstream.repo.get_commit_message(rev)
         origin_revid = gerrit.get_origin_rev_id(commit_message)
-        change_id = gerrit.get_change_id(commit_message)
-        if (
-            rev in upstream_hashes
-            or origin_revid
-            or (change_id and include_change_id)
+        if rev in upstream_hashes or (
+            origin_revid and origin_revid in upstream_hashes
         ):
-            found_relationship = True
-            found_origin = origin_revid
-            found_rev = rev
-            if origin_revid in upstream_hashes or rev in upstream_hashes:
-                counter = upstream_hashes.index(origin_revid or rev)
-            elif include_change_id and change_id in upstream_change_ids:
-                found_origin = upstream_change_ids[change_id]
-                counter = upstream_hashes.index(found_origin or rev)
-        elif found_relationship:
-            return found_origin or found_rev, found_rev, counter
+            return (
+                origin_revid or rev,
+                rev,
+                upstream_hashes.index(origin_revid or rev),
+            )
 
-    for rev in upstream_hashes:
-        if pending_changes and rev in pending_changes:
-            counter = upstream_hashes.index(rev)
+    return_counter = 0
+    return_rev = None
+    if pending_changes:
+        for rev in pending_changes:
+            if rev in upstream_hashes:
+                counter = upstream_hashes.index(rev)
+                if counter < return_counter:
+                    return_counter = counter
+                    return_rev = rev
+        if return_counter and return_rev:
             return rev, rev, counter
 
     raise ValueError(
@@ -267,10 +255,16 @@ def find_last_merged_rev(
             else:
                 continue
             return origin_revid or rev, rev, counter
-
-    for rev in upstream_hashes:
-        if pending_changes and rev in pending_changes:
-            counter = upstream_hashes.index(rev)
+    return_counter = 0
+    return_rev = None
+    if pending_changes:
+        for rev in pending_changes:
+            if rev in upstream_hashes:
+                counter = upstream_hashes.index(rev)
+                if counter < return_counter:
+                    return_counter = counter
+                    return_rev = rev
+        if return_counter and return_rev:
             return rev, rev, counter
 
     raise ValueError(
@@ -1391,7 +1385,7 @@ def run_copybot(
             )
             push_changes_to_downstream(config, downstream, skip_cq)
 
-        if config.config_file_path and not config.dry_run and not skip_cq:
+        if config.config_file_path and not skip_cq:
             update_config_args = [
                 "--config",
                 config.config_file_path,
@@ -1406,13 +1400,19 @@ def run_copybot(
                 "--downstream-history-limit",
                 str(downstream.history_limit),
             ]
-            try:
-                copybot_argparser.generate_config(update_config_args)
-                upload_updated_config(config, downstream)
-            except gerrit.MergeConflictsError as e:
-                logger.exception(
-                    "Could not update up/down stream history origins %s", e
+            if config.dry_run:
+                logger.info(
+                    "Would have called update configs with %s",
+                    update_config_args,
                 )
+            else:
+                try:
+                    copybot_argparser.generate_config(update_config_args)
+                    upload_updated_config(config, downstream)
+                except gerrit.MergeConflictsError as e:
+                    logger.exception(
+                        "Could not update up/down stream history origins %s", e
+                    )
         else:
             logging.info(
                 "Skipping up/down stream history origins update due to:"

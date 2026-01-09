@@ -65,7 +65,7 @@ import pathlib
 import re
 import subprocess
 import tempfile
-from typing import Any, Final
+from typing import Any, Final, Union
 
 import copybot_argparser
 import gerrit
@@ -1205,17 +1205,17 @@ def upload_cl(
     config: copybot_argparser.CopybotConfig,
     url: str,
     commit_msg: str,
-    path: str,
+    paths: list[Union[str, "os.PathLike[str]"]],
     hashtags: list[str],
     config_repo: gerrit.GitRepo | None,
 ):
     if config_repo is None:
         config_repo = gerrit.GitRepo(pathlib.Path(__file__).resolve().parent)
     try:
-        config_repo.add(path)
+        config_repo.add(paths)
         config_repo.commit(commit_msg)
     except subprocess.CalledProcessError as e:
-        logger.warning("Could not commit target files at: %s", path)
+        logger.warning("Could not commit target files at: %s", paths)
         raise gerrit.MergeConflictError() from e
 
     push_changes_to_downstream(
@@ -1262,7 +1262,7 @@ def upload_updated_config(
                 "Update up/downstream history starts with hashes\n\n"
                 "BUG=None\nTEST=CQ"
             ),
-            path=config.config_file_path,
+            paths=[config.config_file_path],
             hashtags=["copybot-config-update"],
             config_repo=config_repo,
         )
@@ -1614,7 +1614,11 @@ def main(argv: list[str] | None = None) -> None:
                             "Update LUCI configs from config files\n\n"
                             "BUG=None\nTEST=./regenerate_configs.py"
                         ),
-                        path="*",
+                        paths=[
+                            "generated/*",
+                            "luci/*",
+                            "misc_builders/copybot_jobs.txtpb",
+                        ],
                         hashtags=opts.hashtags,
                         config_repo=gerrit.GitRepo(config_path),
                     )

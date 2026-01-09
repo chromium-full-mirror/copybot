@@ -110,7 +110,7 @@ def create_commit(
     commit_msg = commit_msg or f"CHROMIUM: Add {filename_to_create}"
 
     (path / filename_to_create).write_text(filename_to_create)
-    repo.add(filename_to_create)
+    repo.add([filename_to_create])
     repo.commit(message=commit_msg)
     commit_hash = repo.rev_parse()
     return commit_msg, commit_hash
@@ -357,7 +357,7 @@ def test_upload_updated_config(mock_push, copybot_config):
     mock_repo = GitRepoMock()
     copybot.upload_updated_config(copybot_config, config_repo=mock_repo)
 
-    mock_repo.add.assert_called_once_with("path/to/my_config.ini")
+    mock_repo.add.assert_called_once_with(["path/to/my_config.ini"])
     mock_repo.commit.assert_called_once_with(expected_commit_msg)
 
     # Check that the push was called with correct arguments
@@ -900,7 +900,7 @@ class TestCopyBotIntegration:
             "int main() { return 0; }"
         )
         (upstream_path / "docs" / "guide.md").write_text("# Documentation")
-        upstream_repo.add(".")
+        upstream_repo.add(["."])
         upstream_repo.commit(message="CHROMIUM: Add new feature with docs")
         commit_hash = upstream_repo.rev_parse()
 

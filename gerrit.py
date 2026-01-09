@@ -465,7 +465,7 @@ class GitRepo:
 
     def add(
         self,
-        path: Union[str, "os.PathLike[str]"],
+        paths: list[Union[str, "os.PathLike[str]"]],
         stage: bool = False,
         force: bool = False,
     ) -> "subprocess.CompletedProcess[str]":
@@ -475,8 +475,8 @@ class GitRepo:
             extra_args.append("--all")
         if force:
             extra_args.append("--force")
-        if path:
-            extra_args.append(str(path))
+        if paths:
+            extra_args.extend([str(path) for path in paths])
         return self._run_git("add", *extra_args)
 
     def get_subtree_lowest_working_dir(
@@ -531,7 +531,7 @@ class GitRepo:
 
         with self.temp_worktree(f"{rev}~1") as worktree:
             worktree.apply(patch)
-            worktree.add("", stage=True, force=True)
+            worktree.add([], stage=True, force=True)
             return worktree.commit(old_message)
 
     def get_parents(
@@ -590,7 +590,7 @@ class GitRepo:
                     if "patch does not apply" in e.stderr:
                         logger.warning("Patch does not apply to downstream")
                         raise CommitDoesNotApplyError() from e
-                    self.add(downstream_subtree, stage=True, force=True)
+                    self.add([downstream_subtree], stage=True, force=True)
                     self.commit(
                         self.get_commit_message(rev),
                         amend=False,
@@ -692,7 +692,7 @@ class GitRepo:
                         allow_empty=True,
                     )
                     raise EmptyCommitError() from e
-        self.add(downstream_subtree, stage=True, force=True)
+        self.add([downstream_subtree], stage=True, force=True)
         try:
             self.commit(
                 self.get_commit_message(rev),

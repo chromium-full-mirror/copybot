@@ -1196,29 +1196,22 @@ def fetch_downstream_target_head_from_remote(
     )
 
 
-def upload_updated_config(
+def upload_cl(
     config: copybot_argparser.CopybotConfig,
-    downstream: copybot_argparser.DownstreamConfig | None = None,
-    config_repo: gerrit.GitRepo | None = None,
-) -> None:
+    url: str,
+    commit_msg: str,
+    path: str,
+    hashtags: list[str],
+    config_repo: gerrit.GitRepo | None,
+):
     if config_repo is None:
         config_repo = gerrit.GitRepo(pathlib.Path(__file__).resolve().parent)
     try:
-        config_repo.add(config.config_file_path)
-        config_repo.commit(
-            (
-                "copybot: Update Config Files\n\n"
-                "Auto generated CL by copybot.\n"
-                "Update up/downstream history starts with hashes\n\n"
-                "BUG=None\nTEST=CQ"
-            )
-        )
+        config_repo.add(path)
+        config_repo.commit(commit_msg)
     except subprocess.CalledProcessError as e:
-        logging.warning("Could not update config: %s", e)
-        commits = [config.upstream.history_starts_with]
-        if downstream:
-            commits.append(downstream.history_starts_with)
-        raise gerrit.MergeConflictsError(commits=commits)
+        logger.warning("Could not commit target files at: %s", path)
+        raise gerrit.MergeConflictError() from e
 
     push_changes_to_downstream(
         config,
@@ -1227,7 +1220,7 @@ def upload_updated_config(
             reviewers=[],
             ccs=[],
             push_options=["uploadvalidator~skip", "nokeycheck"],
-            hashtags=["copybot-config-update"],
+            hashtags=hashtags,
             prepend_subject="",
             insert_into_msg={},
             keep_pseudoheaders=[],
@@ -1235,7 +1228,7 @@ def upload_updated_config(
             history_limit=0,
             include_paths=[],
             history_starts_with="",
-            url="https://chromium.googlesource.com/copybot",
+            url=url,
             branch="main",
             subtree="",
             is_local=False,
@@ -1247,6 +1240,33 @@ def upload_updated_config(
         ),
         False,
     )
+
+
+def upload_updated_config(
+    config: copybot_argparser.CopybotConfig,
+    downstream: copybot_argparser.DownstreamConfig | None = None,
+    config_repo: gerrit.GitRepo | None = None,
+) -> None:
+    try:
+        upload_cl(
+            config=config,
+            url="https://chromium.googlesource.com/copybot",
+            commit_msg=(
+                "copybot: Update Config Files\n\n"
+                "Auto generated CL by copybot.\n"
+                "Update up/downstream history starts with hashes\n\n"
+                "BUG=None\nTEST=CQ"
+            ),
+            path=config.config_file_path,
+            hashtags=["copybot-config-update"],
+            config_repo=config_repo,
+        )
+    except gerrit.MergeConflictError as e:
+        logging.warning("Could not update config: %s", e)
+        commits = [config.upstream.history_starts_with]
+        if downstream:
+            commits.append(downstream.history_starts_with)
+        raise gerrit.MergeConflictsError(commits=commits)
 
 
 def run_copybot(
@@ -1563,13 +1583,38 @@ def main(argv: list[str] | None = None) -> None:
             if config.generate_config:
                 copybot_argparser.generate_config(argv)
                 upload_updated_config(config)
-            elif opts.gen_luci_jobs:
+            elif config.gen_luci_jobs:
                 create_luci_configs()
                 logger.info(
                     "LUCI CFG has been generated at infra/config/misc_builders"
                 )
-                logger.info("Please commit and upload it")
-                return
+                config_path = (
+                    pathlib.Path(__file__).resolve().parent.parent / "config"
+                )
+                subprocess.run(
+                    ["./regenerate_configs.py"],
+                    check=True,
+                    cwd=config_path,
+                )
+                try:
+                    upload_cl(
+                        config=config,
+                        url=(
+                            "https://chrome-internal.googlesource.com/"
+                            "chromeos/infra/config"
+                        ),
+                        commit_msg=(
+                            "copybot: Update builder config\n\n"
+                            "Auto generated CL by copybot.\n"
+                            "Update LUCI configs from config files\n\n"
+                            "BUG=None\nTEST=./regenerate_configs.py"
+                        ),
+                        path="*",
+                        hashtags=opts.hashtags,
+                        config_repo=gerrit.GitRepo(config_path),
+                    )
+                except gerrit.MergeConflictError:
+                    raise NothingToDo("All LUCI Jobs up to date")
             else:
                 run_copybot(gerrit.Gerrit, config, patch_dir)
         except NothingToDo as e:

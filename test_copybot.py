@@ -96,6 +96,7 @@ def cons_default_copybot_config() -> copybot_argparser.CopybotConfig:
         first_unmerged=False,
         add_pseudoheaders=[],
         ignore_change_id=False,
+        gen_luci_jobs=False,
     )
     return copybot_config
 

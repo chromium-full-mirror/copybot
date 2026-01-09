@@ -158,6 +158,7 @@ class CopybotConfig:
     first_unmerged: bool
     # Pseudoheaders to be added to the commit message
     add_pseudoheaders: list[str]
+    gen_luci_jobs: bool
 
 
 def generate_config(argv: Optional[List[str]] = None) -> None:
@@ -477,7 +478,10 @@ def parse_copybot_config(
     for key, value in vars(opts).items():
         if isinstance(value, str):
             setattr(opts, key, value.strip('"'))
-
+    downstream_configs = []
+    exclude_file_patterns = []
+    filter_file_patterns = []
+    upstream_config = None
     if not opts.downstreams:
         opts.downstreams = {opts.downstream_remote_name: opts.downstream}
 
@@ -488,7 +492,6 @@ def parse_copybot_config(
         upstream_subtree,
     ) = parse_repo_info(opts.upstream)
 
-    exclude_file_patterns = []
     if (
         gerrit.ExclusionBehavior[opts.exclude_method]
         == gerrit.ExclusionBehavior.DROP
@@ -502,8 +505,6 @@ def parse_copybot_config(
     upstream_git_dir = os.path.join(git_root_dir, opts.upstream_remote_name)
     os.makedirs(upstream_git_dir, exist_ok=True)
     upstream_repo = gerrit.GitRepo(upstream_git_dir)
-
-    downstream_configs = []
 
     for remote_name, raw_downstream in opts.downstreams.items():
         (
@@ -564,6 +565,16 @@ def parse_copybot_config(
     if len(all_remote_names) != len(set(all_remote_names)):
         raise ValueError("Remote names must be unique across targets")
 
+    for downstream_config in downstream_configs:
+        if 0 < downstream_config.history_limit < upstream_config.history_limit:
+            logger.warning(
+                "Using a lower downstream limit than upstream limit may cause"
+                " previously downstreamed changes to be chosen again. "
+                "Downstream: %s, Upstream: %s",
+                downstream_config.remote_name,
+                upstream_config.remote_name,
+            )
+
     copybot_config = CopybotConfig(
         topic=opts.topic,
         json_out=opts.json_out,
@@ -586,16 +597,7 @@ def parse_copybot_config(
         enable_kernel_cl_dispatcher=opts.enable_kernel_cl_dispatcher,
         first_unmerged=opts.first_unmerged,
         add_pseudoheaders=opts.add_pseudoheaders,
+        gen_luci_jobs=opts.gen_luci_jobs,
     )
-
-    for downstream_config in downstream_configs:
-        if 0 < downstream_config.history_limit < upstream_config.history_limit:
-            logger.warning(
-                "Using a lower downstream limit than upstream limit may cause"
-                " previously downstreamed changes to be chosen again. "
-                "Downstream: %s, Upstream: %s",
-                downstream_config.remote_name,
-                upstream_config.remote_name,
-            )
 
     return copybot_config

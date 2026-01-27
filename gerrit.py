@@ -380,9 +380,11 @@ class GitRepo:
         path: Union[str, "os.PathLike[str]"] = "",
         include_paths: Optional[List[Union[str, "os.PathLike[str]"]]] = None,
         exclude_paths: Optional[List[Union[str, "os.PathLike[str]"]]] = None,
+        extra_args=None,
     ) -> "subprocess.CompletedProcess[str]":
         """Apply a patch to the staging area."""
-        extra_args = []
+        if not extra_args:
+            extra_args = []
         if path and str(path) != ".":
             extra_args.append(f"--directory={path}")
         if include_paths:
@@ -668,15 +670,29 @@ class GitRepo:
                 1,
                 self.get_subtree_lowest_working_dir(upstream_subtree),
             )
+            apply_flag_list = [
+                [],
+                ["--3way", "--theirs"],
+            ]
+            stored_exception = None
             try:
-                self.apply(
-                    patch=patch,
-                    path=self.get_subtree_lowest_working_dir(
-                        downstream_subtree
-                    ),
-                    include_paths=include_paths,
-                    exclude_paths=exclude_paths,
-                )
+                for args in apply_flag_list:
+                    try:
+                        self.apply(
+                            patch=patch,
+                            path=self.get_subtree_lowest_working_dir(
+                                downstream_subtree
+                            ),
+                            include_paths=include_paths,
+                            exclude_paths=exclude_paths,
+                            extra_args=args,
+                        )
+                        stored_exception = None
+                        break
+                    except subprocess.CalledProcessError as e:
+                        stored_exception = e
+                if stored_exception:
+                    raise MergeConflictError() from stored_exception
             except subprocess.CalledProcessError as e:
                 if not allow_conflict:
                     raise MergeConflictError() from e

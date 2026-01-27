@@ -383,7 +383,7 @@ class GitRepo:
         extra_args=None,
     ) -> "subprocess.CompletedProcess[str]":
         """Apply a patch to the staging area."""
-        if not extra_args:
+        if extra_args is None:
             extra_args = []
         if path and str(path) != ".":
             extra_args.append(f"--directory={path}")
@@ -671,7 +671,13 @@ class GitRepo:
                 self.get_subtree_lowest_working_dir(upstream_subtree),
             )
             apply_flag_list = [
+                # Attempt to apply the formatted patch
+                # without any additional flags
                 [],
+                # Attempt to apply the formatted patch with the upstream
+                # delta being preferred. This is useful/necessary when a
+                # frompull has been performed and a delta was generated
+                # by the final CL.
                 ["--3way", "--theirs"],
             ]
             stored_exception = None

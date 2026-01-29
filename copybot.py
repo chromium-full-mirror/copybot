@@ -1008,9 +1008,10 @@ def cherry_pick_commits_to_downstream(
     skipped_revs = []
     applied_cls = []
     # Create directory if it doesn't exist
-    if downstream.subtree:
+    downstream_path = pathlib.Path(downstream.repo.git_dir) / downstream.subtree
+    if downstream.subtree and not downstream_path.is_file():
         os.makedirs(
-            pathlib.Path(downstream.repo.git_dir) / downstream.subtree,
+            downstream_path,
             exist_ok=True,
         )
     for i, rev in enumerate(reversed(updated_commits_to_copy)):

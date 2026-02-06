@@ -505,10 +505,14 @@ def find_commits_to_copy(
             path for path in commit_files if path not in filtered_commit_files
         ]
 
-        if downstream.subtree and downstream.include_paths:
+        if downstream.include_paths:
             filtered_commit_files = []
             for path in commit_files:
-                filtered_path = pathlib.Path(path).relative_to(upstream.subtree)
+                filtered_path = pathlib.Path(path)
+                if upstream.subtree:
+                    filtered_path = pathlib.Path(path).relative_to(
+                        upstream.subtree
+                    )
                 if filtered_path in downstream.include_paths:
                     filtered_commit_files.append(path)
                     break

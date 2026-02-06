@@ -111,8 +111,8 @@ class DownstreamConfig(TargetConfig):
     # A Dict(line, message) of messages to add to the commit msg.
     insert_into_msg: dict[int, str]
     keep_pseudoheaders: list[str]
-    limit: int
     # The maximum number of CLs in the downstream history to check.
+    limit: int
     include_paths: list[str | os.PathLike[str]]
     is_local: bool
     # Kernel CL Dispatcher config to mark until what SHA should the history
@@ -356,8 +356,8 @@ def create_arg_parser() -> configargparse.ArgumentParser:
         "--include-downstream",
         action="append",
         default=[],
-        help="Downstream include paths (relative to the subtree) separated by"
-        " colons.  Note: Only supported with subtrees",
+        help="Downstream include paths (relative to the subtree or root)"
+        " separated by colons.",
     )
     parser.add_argument(
         "--add-pseudoheader",

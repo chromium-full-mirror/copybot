@@ -477,7 +477,7 @@ class GitRepo:
             extra_args.append("--all")
         if force:
             extra_args.append("--force")
-        if paths:
+        if paths and not all(not item for item in paths):
             extra_args.extend([str(path) for path in paths])
         return self._run_git("add", *extra_args)
 

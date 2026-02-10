@@ -513,14 +513,14 @@ def find_commits_to_copy(
                     filtered_path = pathlib.Path(path).relative_to(
                         upstream.subtree
                     )
-                if filtered_path in downstream.include_paths:
+                if str(filtered_path) in downstream.include_paths:
                     filtered_commit_files.append(path)
                     break
 
             if not filtered_commit_files:
                 logger.info(
                     "Skip commit %s due to empty file list after filtering "
-                    "(before filtering was %r)",
+                    "include paths(before filtering was %r)",
                     rev,
                     commit_files,
                 )

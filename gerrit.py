@@ -161,7 +161,7 @@ class GitRepoInterface(Protocol):
 
     def rev_parse(self, rev: str = "HEAD") -> str: ...
 
-    def fetch(self, remote: str, ref: str = "") -> str: ...
+    def fetch(self, remote: str, ref: str = "", subtree: str = "") -> str: ...
 
     def checkout(self, ref: str, *args: list[str]) -> None: ...
 
@@ -279,7 +279,7 @@ class GitRepo:
         result = self._run_git("rev-parse", rev)
         return result.stdout.rstrip()
 
-    def fetch(self, remote: str, ref: str = "") -> str:
+    def fetch(self, remote: str, ref: str = "", subtree: str = "") -> str:
         """Do a `git fetch`.
 
         Returns:
@@ -289,7 +289,9 @@ class GitRepo:
         if ref:
             extra_args.append(ref)
         self._run_git("fetch", remote, *extra_args)
-        return self.rev_parse("FETCH_HEAD")
+        return self.log(
+            revision_range="FETCH_HEAD", num=1, fmt="%H", subtree=subtree
+        )
 
     def checkout(self, ref: str, *args: list[str]) -> None:
         """Do a `git checkout`."""
@@ -990,7 +992,6 @@ class Gerrit:
                 _, path_ext = os.path.splitext(path)
                 if not path_ext:
                     query.append(f"-directory:{path}")
-
         query_result = self.search(" ".join(query))
         pending_change_ids = {}
         abandoned_change_ids = {}

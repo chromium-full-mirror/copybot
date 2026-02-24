@@ -666,11 +666,11 @@ def is_server_gob(url: str) -> re.Match[str] | None:
 
 
 def fetch_repo_head_sha(
-    repo: gerrit.GitRepoInterface, url: str, branch: str
+    repo: gerrit.GitRepoInterface, url: str, branch: str, subtree: str = ""
 ) -> str:
     """Fetch HEAD sha in the repository of a given remote and branch."""
     try:
-        return repo.fetch(url, branch)
+        return repo.fetch(url, branch, subtree)
     except subprocess.CalledProcessError as e:
         raise gerrit.FetchError(
             f"Failed to fetch branch {branch} from {url}"
@@ -1194,6 +1194,7 @@ def fetch_downstream_target_head_from_remote(
         downstream.repo,
         downstream.remote_name,
         downstream.branch,
+        downstream.subtree,
     )
     # Fetch upstream contents in downstream repository
     downstream.repo.add_remote(

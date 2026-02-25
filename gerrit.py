@@ -672,16 +672,17 @@ class GitRepo:
                 1,
                 self.get_subtree_lowest_working_dir(upstream_subtree),
             )
-            apply_flag_list = [
+            apply_flag_list: list[list] = [
                 # Attempt to apply the formatted patch
                 # without any additional flags
                 [],
+            ]
+            if self.is_merge_commit(rev):
                 # Attempt to apply the formatted patch with the upstream
                 # delta being preferred. This is useful/necessary when a
                 # frompull has been performed and a delta was generated
                 # by the final CL.
-                ["--3way", "--theirs"],
-            ]
+                apply_flag_list.append(["--3way", "--theirs"])
             stored_exception = None
             try:
                 for args in apply_flag_list:

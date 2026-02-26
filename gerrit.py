@@ -279,6 +279,26 @@ class GitRepo:
         result = self._run_git("rev-parse", rev)
         return result.stdout.rstrip()
 
+    def cat_file(
+        self,
+        rev: str = "HEAD",
+        path: Union[str, "os.PathLike[str]"] = "",
+        get_type=False,
+        get_parents=False,
+    ) -> str:
+        """Do a `git rev-parse`."""
+        extra_args = []
+        rev_string = rev
+        if get_type:
+            extra_args.append("-t")
+        if get_parents:
+            extra_args.append("-p")
+        if path:
+            rev_string += ":" + str(path)
+        extra_args.append(rev_string)
+        result = self._run_git("cat-file", *extra_args)
+        return str(result.stdout.rstrip())
+
     def fetch(self, remote: str, ref: str = "", subtree: str = "") -> str:
         """Do a `git fetch`.
 
@@ -484,15 +504,19 @@ class GitRepo:
         return self._run_git("add", *extra_args)
 
     def get_subtree_lowest_working_dir(
-        self, path: Union[str, "os.PathLike[str]"]
+        self, path: Union[str, "os.PathLike[str]"], rev: str = ""
     ) -> Union[str, "os.PathLike[str]"]:
         """Get the lowest working directory path for subtree."""
         patch_dir = pathlib.Path(self.git_dir)
         if path:
             patch_dir = patch_dir / path
         subtree = path
-        if not patch_dir.is_dir():
-            subtree = pathlib.Path(path).parents[0]
+        if rev:
+            if self.cat_file(rev=rev, path=path, get_type=True) == "blob":
+                subtree = pathlib.Path(path).parents[0]
+        else:
+            if not patch_dir.is_dir():
+                subtree = pathlib.Path(path).parents[0]
         return subtree
 
     @contextlib.contextmanager
@@ -542,11 +566,8 @@ class GitRepo:
         self,
         rev: str = "HEAD",
     ) -> list[str]:
-        extra_args = ["-p"]
-        result = self._run_git("cat-file", rev, *extra_args)
-        return re.findall(
-            _PARENT_COMMIT_HASH_PATTERN, str(result.stdout.rstrip())
-        )
+        result = self.cat_file(rev=rev, get_parents=True)
+        return re.findall(_PARENT_COMMIT_HASH_PATTERN, result)
 
     def is_merge_commit(
         self,
@@ -648,7 +669,7 @@ class GitRepo:
                     self.apply(
                         patch=patch,
                         path=self.get_subtree_lowest_working_dir(
-                            downstream_subtree
+                            path=downstream_subtree
                         ),
                         include_paths=include_paths,
                         exclude_paths=exclude_paths,
@@ -670,7 +691,10 @@ class GitRepo:
                 rev,
                 patch_dir,
                 1,
-                upstream_subtree,
+                self.get_subtree_lowest_working_dir(
+                    rev=rev,
+                    path=upstream_subtree,
+                ),
             )
             apply_flag_list: list[list] = [
                 # Attempt to apply the formatted patch
@@ -690,7 +714,7 @@ class GitRepo:
                         self.apply(
                             patch=patch,
                             path=self.get_subtree_lowest_working_dir(
-                                downstream_subtree
+                                path=downstream_subtree
                             ),
                             include_paths=include_paths,
                             exclude_paths=exclude_paths,

@@ -1180,6 +1180,7 @@ def fetch_upstream_target_head_from_remote(
         config.upstream.repo,
         config.upstream.remote_name,
         config.upstream.branch,
+        config.upstream.subtree,
     )
 
 

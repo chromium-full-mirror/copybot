@@ -670,7 +670,7 @@ class GitRepo:
                 rev,
                 patch_dir,
                 1,
-                self.get_subtree_lowest_working_dir(upstream_subtree),
+                upstream_subtree,
             )
             apply_flag_list: list[list] = [
                 # Attempt to apply the formatted patch

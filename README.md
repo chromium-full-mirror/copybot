@@ -1,8 +1,14 @@
 # CopyBot
 
 CopyBot is a tool that automates commit copying from a third-party
-repository into Gerrit.  Currently, it's used by the Zephyr and
-Coreboot projects.
+repository into Gerrit.  Currently, it's used for:
+* Zephyr
+* coreboot
+* kernel
+* AMD Blobs
+* Fingerprint synchronization
+* Pigweed
+* CHRE
 
 [TOC]
 
@@ -37,6 +43,11 @@ repository to another.  Its general usage is:
 ./copybot.py [options...] <upstream_repo>:<upstream_branch>:<upstream_subtree> <downstream_repo>:<downstream_branch>:<downstream_subtree>
 ```
 
+The repository configurations can be avoided by using a config file:
+```
+./copybot.py [options...] --config ./config/path/to/config
+```
+
 Run `./copybot.py --help` for a complete list of options supported.
 
 `copybot.py` will then:
@@ -64,9 +75,8 @@ encapsulating the parsing, checking, and application of command line arguments.
 
 ## Using CopyBot
 
-CopyBot is intended to be run daily as a cron job.  The Chromium OS
-deployment of CopyBot is scheduled to run at 6 hour intervals starting at
-~4:30 AM Mountain Time, but is configurable on a per project basis in `copybot.star`
+CopyBot is intended to be run at a specified interval as a cron job.  The schedule
+can be found in each projects config directory in the `group_config.ini` file.
 
 Your job as a downstreamer is to:
 
@@ -124,15 +134,6 @@ change in the Gerrit UI.
 On CopyBot's next run, it will respect your wishes, and no longer
 upload any commits which came from this upstream revision.
 
-#### Preserving Commits
-
-To preserve a commit, apply the Gerrit hashtag `copybot-preserve` to
-a pending change in the Gerrit UI.
-
-On CopyBot's next run, it will cherry-pick the pending change from the
-GoB instance associated with your downstream repo instead of overwriting
-it with a change from the upstream repo.
-
 #### Ignore Listing Commits
 
 It is sometimes necessary to ignore a change for the lifetime of a repository.
@@ -142,13 +143,35 @@ should be ignored within a repository.  To accomplish this:
 - upload a CL to the corresponding downstream repo(if subtrees are used, it
 must also be within the desired subtree) with the list of commit hashes to be
 skipped in the CL.
-- Add the downstream topic and `Copybot-Skip` hashtag as you normally would from
+- Add the downstream topic and `copybot-skip` hashtag as you normally would from
   the instructions in [skipping commits](#skipping-commits).
 
 On GoB, it is highly encouraged to add `Commit: false` to the commit message
 to prevent the CL from merging.
 
 See [Ignore List Example].
+
+#### Preserving Commits
+
+To preserve a commit, apply the Gerrit hashtag `copybot-preserve` to
+a pending change in the Gerrit UI.
+
+On CopyBot's next run, it will cherry-pick the pending change from the
+GoB instance associated with your downstream repo instead of overwriting
+it with a change from the upstream repo.
+
+#### Rebasing Commits
+
+Sometimes it becomes necessary to modify a chain such as skipping or abandoning
+a change.  In these instances it may be useful to rebase.  There isn't an easy
+way to do this in the Gerrit UI or via the gerrit CLI, so to have copybot rebase
+the stack, apply the Gerrit hashtag `copybot-rebase` to the first change you
+wish to have rebased.  The subsequent copybot run will rebase the entire stack
+on ToT starting from the commit with the hashtag.
+
+> [!NOTE]
+> After the next copybot run, the `copybot-rebase` hashtag should be removed to
+> avoid additional rebases.
 
 #### Abandoning Commits
 
@@ -163,13 +186,16 @@ You can trigger CopyBot jobs from the [LUCI Scheduler UI].
 ### Adding a CopyBot Configuration
 
 CopyBot jobs are run and managed by LUCI.  To add or modify a job configuration,
-modify the corresponding configuration object in
-[`infra/config/misc_builders/copybot.star`].  This configuration is paired
-with the .ini configuration file found in infra/copybot/config and the name
-used as the config file name must match the builder name.
+modify the corresponding .ini configuration file found in infra/copybot/config.
+Project specific configurations belong in `group_config.ini` and define the
+scheduling interval, notification e-mail list, and jobs which should be manually
+triggered.
 
 Generate and/or update the .ini file by running copybot locally with the
 --generate-config command line option.  See the help for more info.
+
+Once the config file is uploaded, copybot will auto-generate LUCI builder configs
+and launch the new job. See the [Config Manager Job]
 
 ### CopyBot support for repositories
 
@@ -272,8 +298,16 @@ If you then want to see more details on the created commits, use `git show
 
 ### Establishing historical relationships with CopyBot
 
-As alluded to in [Copybot's Design](#copybot_s-design), a downstream
-CL must reference the commit hash of an upstream CL.  This can be
+Historical relationships can be established with the `upstream-history-starts-with` and
+`downstream-history-starts-with` command line/config file arguments.  Using these arguments will set the
+revision hash to use for the target repo as the starting point for consideration for
+downstreaming.  If a relationship can not be determined, and these arguments are set, copybot
+will start at these points, assuming the author submitted a config which is valid, and start
+cherry-picking forward. This option can also be used to limit the number of CLs in the history to look
+at after history has been previously established.  This aids in reducing copybot runtime.
+
+The original method alluded to in [Copybot's Design](#copybot_s-design), can still be used
+to set a downstream CL to reference the commit hash of an upstream CL.  This can be
 accomplished by adding the hash to the commit message(preferably
 using the `GitOrigin-RevId` pseudoheader) and running CopyBot subsequently.
 CopyBot considers downstream pending changes as part of the repository history
@@ -281,17 +315,12 @@ and will overwrite the commit and commit message with the change as it would
 cherry-pick it.  See [Preserving Commits](#preserving-commits) if this is not
 the desired behavior.
 
-Historical relationships can also be established with the `upstream-history-starts-with` and
-`downstream-history-starts-with` command line arguments.  Using these arguments will set the
-revision hash to use for the target repo as the starting point for consideration for
-downstreaming.  This option can also be used to limit the number of CLs in the history to look
-at after history has been previously established.  This aids in reducing copybot runtime.
 
 ## CopyBot Status
 
 To see the status of an individual CopyBot job, go to the corresponding LUCI
 builder in the [LUCI Scheduler UI].  For a more composite view, visit the
-[CopyBot Status Dashboard].
+[CopyBot Status Dashboard].  Jobs are named with the config file name/hierarchy.
 
 ## Contributing to CopyBot
 
@@ -313,6 +342,7 @@ To ask questions or get help, please reachout to [copybot-maintainers@google.com
 How to run it manually video: [copybot - manual run demo][copybot_video]
 (available only to Googlers for the moment).
 
+[Config Manager Job]: https://luci-scheduler.appspot.com/jobs/chromeos/config_manager-config-job-copybot-downstream
 [Copybara]: https://github.com/google/copybara
 [CopyBot Status Dashboard]: https://dashboards.corp.google.com/_e1e96010_77ed_4e80_8437_f8fb0bb0f77b
 [copybot-maintainers@google.com]: mailto:copybot-maintainers@google.com

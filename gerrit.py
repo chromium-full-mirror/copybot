@@ -27,6 +27,7 @@ from typing import (
     Iterable,
     List,
     Optional,
+    Pattern,
     Protocol,
     Sequence,
     Tuple,
@@ -211,7 +212,7 @@ class GitRepoInterface(Protocol):
         patch_dir: Union[str, "os.PathLike[str]"] = "",
         upstream_subtree: Union[str, "os.PathLike[str]"] = "",
         downstream_subtree: Union[str, "os.PathLike[str]"] = "",
-        include_paths: Optional[List[Union[str, "os.PathLike[str]"]]] = None,
+        include_paths: Optional[List[Union[str, "Pattern[str]"]]] = None,
         exclude_paths: Optional[List[Union[str, "os.PathLike[str]"]]] = None,
         allow_conflict: bool = False,
     ) -> None: ...
@@ -400,7 +401,7 @@ class GitRepo:
         self,
         patch: Union[str, "os.PathLike[str]"],
         path: Union[str, "os.PathLike[str]"] = "",
-        include_paths: Optional[List[Union[str, "os.PathLike[str]"]]] = None,
+        include_paths: Optional[List[Union[str, "Pattern[str]"]]] = None,
         exclude_paths: Optional[List[Union[str, "os.PathLike[str]"]]] = None,
         extra_args=None,
     ) -> "subprocess.CompletedProcess[str]":
@@ -581,7 +582,7 @@ class GitRepo:
         patch_dir: Union[str, "os.PathLike[str]"] = "",
         upstream_subtree: Union[str, "os.PathLike[str]"] = "",
         downstream_subtree: Union[str, "os.PathLike[str]"] = "",
-        include_paths: Optional[List[Union[str, "os.PathLike[str]"]]] = None,
+        include_paths: Optional[List[Union[str, "Pattern[str]"]]] = None,
         exclude_paths: Optional[List[Union[str, "os.PathLike[str]"]]] = None,
         allow_conflict: bool = False,
     ) -> None:

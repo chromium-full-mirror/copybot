@@ -513,7 +513,10 @@ def find_commits_to_copy(
                     filtered_path = pathlib.Path(path).relative_to(
                         upstream.subtree
                     )
-                if str(filtered_path) in downstream.include_paths:
+                if not any(
+                    re.fullmatch(p, str(filtered_path))
+                    for p in downstream.include_paths or []
+                ):
                     filtered_commit_files.append(path)
                     break
 

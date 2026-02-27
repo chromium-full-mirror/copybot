@@ -12,7 +12,7 @@ import logging
 import os
 import pathlib
 import re
-from typing import Any, List, Optional, Union
+from typing import Any, List, Optional, Pattern, Union
 import urllib
 import urllib.parse
 
@@ -113,7 +113,7 @@ class DownstreamConfig(TargetConfig):
     keep_pseudoheaders: list[str]
     # The maximum number of CLs in the downstream history to check.
     limit: int
-    include_paths: list[str | os.PathLike[str]]
+    include_paths: list[str | Pattern[str]]
     is_local: bool
     # Kernel CL Dispatcher config to mark until what SHA should the history
     # be traversed when looking for commits mentioned in FIXES tag.

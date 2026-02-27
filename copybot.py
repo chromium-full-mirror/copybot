@@ -1052,7 +1052,6 @@ def cherry_pick_commits_to_downstream(
                     exclude_paths=config.exclude_file_patterns,
                 )
         except gerrit.EmptyCommitError:
-            logger.warning("Applied empty commit")
             empty_revs.append(rev)
             continue
         except gerrit.MergeConflictError as e:

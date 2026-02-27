@@ -656,7 +656,7 @@ class GitRepo:
             for parent in self.get_parents(rev):
                 try:
                     patch = pathlib.Path(patch_dir) / f"{parent}_{rev}.patch"
-                    result = self._run_git(
+                    self._run_git(
                         "diff",
                         "--full-index",
                         "--binary",
@@ -664,8 +664,6 @@ class GitRepo:
                         rev,
                         f"--output={patch}",
                     )
-                    patch_content = result.stdout.rstrip()
-                    print(patch_content)
                     self.apply(
                         patch=patch,
                         path=self.get_subtree_lowest_working_dir(
@@ -700,6 +698,7 @@ class GitRepo:
                 # Attempt to apply the formatted patch
                 # without any additional flags
                 [],
+                ["--3way"],
             ]
             if self.is_merge_commit(rev):
                 # Attempt to apply the formatted patch with the upstream
@@ -733,13 +732,6 @@ class GitRepo:
                     'No valid patches in input (allow with "--allow-empty")'
                     in e.stderr
                 ):
-                    self.commit(
-                        self.get_commit_message(rev),
-                        amend=False,
-                        sign_off=False,
-                        stage=False,
-                        allow_empty=True,
-                    )
                     raise EmptyCommitError() from e
         self.add([downstream_subtree], stage=True, force=True)
         try:
@@ -750,15 +742,7 @@ class GitRepo:
                 stage=True,
             )
         except subprocess.CalledProcessError as e:
-            if "nothing to commit, working tree clean" in e.stderr:
-                logger.info("Empty commit error")
-                self.commit(
-                    self.get_commit_message(rev),
-                    amend=False,
-                    sign_off=False,
-                    stage=False,
-                    allow_empty=True,
-                )
+            if "nothing to commit, working tree clean" in e.stdout:
                 raise EmptyCommitError() from e
         return
 

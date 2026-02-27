@@ -875,9 +875,13 @@ def push_changes_to_downstream(
     config: copybot_argparser.CopybotConfig,
     downstream: copybot_argparser.DownstreamConfig,
     skip_cq: bool,
+    gerrit_inst: gerrit.GerritInterface | None = None,
+    pending_changes: dict[str, gerrit.GerritClInfo] | None = None,
 ) -> None:
     """Push changes to downstream location."""
     push_refspec = get_push_refspec(config, downstream, skip_cq)
+    if not pending_changes:
+        pending_changes = {}
     if not config.dry_run and not downstream.is_local:
         try:
             downstream.repo.push(
@@ -885,6 +889,12 @@ def push_changes_to_downstream(
                 push_refspec,
                 options=downstream.push_options,
             )
+            for change in pending_changes.values():
+                if REBASE_TAG in change.hashtags:
+                    if gerrit_inst:
+                        gerrit_inst.adjust_hashtags(
+                            change.change_id, remove_hashtags=[REBASE_TAG]
+                        )
         except subprocess.CalledProcessError as e:
             raise gerrit.PushError(f"Failed to push to {downstream.url}") from e
     else:
@@ -1414,7 +1424,9 @@ def run_copybot(
                 or any(skipped_revs)
                 or any(cl in owners_cls for cl in applied_cls)
             )
-            push_changes_to_downstream(config, downstream, skip_cq)
+            push_changes_to_downstream(
+                config, downstream, skip_cq, gerrit_inst, pending_changes
+            )
 
         if config.config_file_path and not skip_cq:
             update_config_args = [

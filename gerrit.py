@@ -939,12 +939,69 @@ class GerritInterface(Protocol):
         exclude_paths: Iterable[str | "os.PathLike[str]"] = (),
     ) -> Tuple[Dict[str, GerritClInfo], Dict[str, GerritClInfo]]: ...
 
+    def adjust_hashtags(
+        self,
+        change_id: str,
+        remove_hashtags: list[str] | None = None,
+        add_hashtags: list[str] | None = None,
+    ) -> None: ...
+
 
 class Gerrit:
     """Wrapper for actions on a Gerrit host."""
 
     def __init__(self, hostname: str) -> None:
         self.hostname = hostname
+
+    def transact(
+        self,
+        url: str,
+        method: str = "GET",
+        params: Optional[List[tuple[str, str]]] = None,
+        json_payload: Optional[dict[str, Any]] = None,
+        headers: Optional[dict[str, str]] = None,
+    ):
+        while True:
+            r = requests.request(
+                method, url, params=params, json=json_payload, headers=headers
+            )
+            if r.ok:
+                break
+            if r.status_code == requests.codes.too_many:
+                time.sleep(1)
+                continue
+            r.raise_for_status()
+            assert False
+
+        if not r.text:
+            return None
+
+        # Gerrit's JSON responses are prefixed with )]}'
+        if r.text.startswith(")]}'\n"):
+            return json.loads(r.text[5:])
+        else:
+            logger.error("Bad response from Gerrit: %r", r.text)
+            raise ValueError("Unexpected JSON payload from Gerrit")
+
+    def adjust_hashtags(
+        self,
+        change_id: str,
+        remove_hashtags: list[str] | None = None,
+        add_hashtags: list[str] | None = None,
+    ):
+        url = f"https://{self.hostname}/a/changes/{change_id}/hashtags"
+
+        payload = {}
+        if remove_hashtags:
+            payload["remove"] = remove_hashtags
+        if add_hashtags:
+            payload["add"] = add_hashtags
+
+        headers = {"Content-Type": "application/json; charset=UTF-8"}
+
+        return self.transact(
+            url=url, method="POST", json_payload=payload, headers=headers
+        )
 
     def search(self, query: str) -> List[Dict[str, Any]]:
         """Do a query on Gerrit."""
@@ -955,22 +1012,7 @@ class Gerrit:
             ("o", "CURRENT_COMMIT"),
             ("o", "COMMIT_FOOTERS"),
         ]
-        while True:
-            r = requests.get(url, params=params)
-            if r.ok:
-                break
-            if r.status_code == requests.codes.too_many:
-                time.sleep(1)
-                continue
-            r.raise_for_status()
-            assert False
-
-        if r.text[:5] != ")]}'\n":
-            logger.error("Bad response from Gerrit: %r", r.text)
-            raise ValueError("Unexpected JSON payload from gerrit")
-
-        result = json.loads(r.text[5:])
-        return result
+        return self.transact(url=url, params=params)
 
     def find_pending_changes(
         self,

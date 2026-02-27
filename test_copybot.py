@@ -227,6 +227,9 @@ class GerritMock:
     ) -> Tuple[Dict[str, gerrit.GerritClInfo], Dict[str, gerrit.GerritClInfo]]:
         return PENDING_CHANGES, {}
 
+    def adjust_hashtags(self, *unused_args, **unused_kwargs) -> None:
+        return
+
 
 @mock.patch("gerrit.GitRepo", GitRepoMock)
 def test_parse_copybot_config_from_file(tmp_path):

@@ -1451,6 +1451,13 @@ def run_copybot(
                     "Would have called update configs with %s",
                     update_config_args,
                 )
+            elif any(
+                "copybot-skip" in cl.hashtags for cl in pending_changes.values()
+            ):
+                logging.info(
+                    "Skipping up/down stream history origins update due to"
+                    " pending CL with copybot-skip hashtag"
+                )
             else:
                 try:
                     copybot_argparser.generate_config(update_config_args)

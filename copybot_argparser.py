@@ -356,7 +356,7 @@ def create_arg_parser() -> configargparse.ArgumentParser:
         "--include-downstream",
         action="append",
         default=[],
-        help="Downstream include paths (relative to the subtree or root).",
+        help="Downstream include globs (relative to the subtree or root).",
     )
     parser.add_argument(
         "--add-pseudoheader",

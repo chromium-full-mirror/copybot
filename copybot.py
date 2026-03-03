@@ -57,6 +57,7 @@ import ast
 from collections.abc import Iterable
 import configparser
 import contextlib
+import fnmatch
 import itertools
 import json
 import logging
@@ -513,8 +514,8 @@ def find_commits_to_copy(
                     filtered_path = pathlib.Path(path).relative_to(
                         upstream.subtree
                     )
-                if not any(
-                    re.fullmatch(p, str(filtered_path))
+                if any(
+                    fnmatch.fnmatch(str(filtered_path), str(p))
                     for p in downstream.include_paths or []
                 ):
                     filtered_commit_files.append(path)

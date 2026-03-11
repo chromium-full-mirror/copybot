@@ -1369,7 +1369,10 @@ def run_copybot(
         )
 
         if not commits_to_copy:
-            # Nothing to copy, proceed to the next downstream
+            logger.info(
+                "[%s] Nothing to copy, proceeding to the next downstream",
+                downstream.remote_name,
+            )
             continue
 
         if not config.filter_changes:

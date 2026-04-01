@@ -1210,6 +1210,14 @@ def fetch_downstream_target_head_from_remote(
         downstream.branch,
         downstream.subtree,
     )
+    if not downstream.head_sha:
+        logger.warning(
+            "Calling log on subtree did not return a hash,"
+            " falling back to FETCH_HEAD"
+        )
+        downstream.head_sha = downstream.repo.log(
+            revision_range="FETCH_HEAD", num=1, fmt="%H"
+        )
     # Fetch upstream contents in downstream repository
     downstream.repo.add_remote(
         str(config.upstream.repo.git_dir), config.upstream.remote_name

@@ -4,6 +4,7 @@
 
 """Unit tests for copybot.py module."""
 
+import io
 import json
 import os
 import pathlib
@@ -406,10 +407,10 @@ CQ-DEPEND: chromium:1234,chrome-internal:5678
 
 
 @pytest.mark.parametrize(
-    ["exception", "expected"],
+    ["exception", "expected", "warnings"],
     [
-        (None, {}),
-        (Exception(), {"failure_reason": "FAILURE_UNKNOWN"}),
+        (None, {}, ""),
+        (Exception(), {"failure_reason": "FAILURE_UNKNOWN"}, ""),
         (
             gerrit.MergeConflictsError(commits=["deadbeef", "deadd00d"]),
             {
@@ -419,12 +420,20 @@ CQ-DEPEND: chromium:1234,chrome-internal:5678
                     {"hash": "deadd00d"},
                 ],
             },
+            "",
+        ),
+        (
+            None,
+            {
+                "summary_markdown": "WARNING: gerrit limit 200",
+            },
+            "WARNING: gerrit limit 200",
         ),
     ],
 )
-def test_write_json_error(tmp_path, exception, expected):
+def test_write_json_error(tmp_path, exception, expected, warnings):
     err_out = tmp_path / "err.json"
-    copybot.write_json_error(err_out, exception)
+    copybot.write_json_error(err_out, exception, io.StringIO(warnings))
     assert json.loads(err_out.read_text()) == expected
 
 

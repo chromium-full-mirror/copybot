@@ -58,6 +58,7 @@ from collections.abc import Iterable
 import configparser
 import contextlib
 import fnmatch
+import io
 import itertools
 import json
 import logging
@@ -1497,12 +1498,15 @@ def run_copybot(
         )
 
 
-def write_json_error(path: pathlib.Path, err: Exception | None) -> None:
+def write_json_error(
+    path: pathlib.Path, err: Exception | None, warnings: io.StringIO
+) -> None:
     """Write out the JSON-serialized protobuf from an exception.
 
     Args:
         path: The Path to write to.
         err: The exception to serialize.
+        warnings: The warning lines collected by the logger.
     """
     err_json: dict[str, Any] = {}
     if err:
@@ -1512,6 +1516,9 @@ def write_json_error(path: pathlib.Path, err: Exception | None) -> None:
                 err_json["merge_conflicts"] = [{"hash": x} for x in err.commits]
         else:
             err_json["failure_reason"] = gerrit.CopybotFatalError.enum_name
+    warnings_str = warnings.getvalue()
+    if warnings_str:
+        err_json["summary_markdown"] = warnings_str
     logger.debug("JSON response: %s", err_json)
     path.write_text(json.dumps(err_json))
 
@@ -1611,6 +1618,13 @@ def main(argv: list[str] | None = None) -> None:
         format="%(asctime)s %(levelname)s: %(message)s",
         level=logging.INFO,
     )
+    # Add a warning log handler to capture warnings and return them in the json
+    captured_warnings = io.StringIO()
+    warning_handler = logging.StreamHandler(captured_warnings)
+    warning_handler.setLevel(logging.WARNING)
+    warning_handler.setFormatter(logging.Formatter("%(message)s"))
+    logging.getLogger().addHandler(warning_handler)
+
     logger.info("-- Starting CopyBot service --")
 
     parser = copybot_argparser.create_arg_parser()
@@ -1673,7 +1687,7 @@ def main(argv: list[str] | None = None) -> None:
             raise
         finally:
             if config.json_out:
-                write_json_error(config.json_out, err)
+                write_json_error(config.json_out, err, captured_warnings)
 
     logger.info("-- CopyBot finished successfully --")
 

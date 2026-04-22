@@ -971,7 +971,16 @@ class Gerrit:
             if r.status_code == requests.codes.too_many:
                 time.sleep(1)
                 continue
-            r.raise_for_status()
+            try:
+                r.raise_for_status()
+            except requests.exceptions.HTTPError as e:
+                logger.error(
+                    "Response text: %s\n\tError: %s\n\tStatus code: %s",
+                    {r.text},
+                    e,
+                    r.status_code,
+                )
+                raise e
             assert False
 
         if not r.text:

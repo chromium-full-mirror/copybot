@@ -768,7 +768,7 @@ class GitRepo:
         """Get the number of CLs between the specified revisions."""
         if not original_rev or not current_rev:
             return 0
-        args = ["--count"]
+        args = ["--first-parent", "--count"]
         args.append(f"{original_rev}..{current_rev}")
         if subtree:
             args.append("--")

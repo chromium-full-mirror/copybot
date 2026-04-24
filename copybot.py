@@ -58,7 +58,6 @@ from collections.abc import Iterable
 import configparser
 import contextlib
 import fnmatch
-import getpass
 import io
 import itertools
 import json
@@ -644,28 +643,11 @@ def get_push_refspec(
         for option in value.split(","):
             push_options.append(f"{key}={option}")
 
-    override_labels = {
-        "Bot-Commit+1": "Auto-Submit+1",
-        "Commit-Queue+2": "Commit-Queue+1",
-    }
-    current_user = getpass.getuser()
-
     for label in downstream.labels:
-        apply_label = label
-        if (
-            (
-                current_user
-                != "copybot@chops-service-accounts.iam.gserviceaccount.com"
-            )
-            or skip_cq
-        ) and label in override_labels:
-            logger.info(
-                "Overriding label %s with %s",
-                label,
-                override_labels[label],
-            )
-            apply_label = override_labels[label]
-        _add_push_option("l", apply_label)
+        if skip_cq and (label in ["Bot-Commit+1", "Commit-Queue+2"]):
+            logger.info("Skipping CQ")
+            continue
+        _add_push_option("l", label)
 
     for cc in downstream.ccs:
         _add_push_option("cc", cc)

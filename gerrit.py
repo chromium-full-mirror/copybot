@@ -257,6 +257,7 @@ class GitRepo:
         logger.info("Run `%s`", " ".join(shlex.quote(str(arg)) for arg in argv))
         kwargs.setdefault("encoding", "utf-8")
         kwargs.setdefault("errors", "replace")
+        log_errors = kwargs.pop("log_errors", True)
         try:
             return subprocess.run(
                 argv,
@@ -266,13 +267,14 @@ class GitRepo:
                 **kwargs,
             )
         except subprocess.CalledProcessError as e:
-            logger.error("Git command failed!")
-            logger.error("  STDOUT:")
-            for line in e.stdout.splitlines():
-                logger.error("    %s", line)
-            logger.error("  STDERR:")
-            for line in e.stderr.splitlines():
-                logger.error("    %s", line)
+            if log_errors:
+                logger.error("Git command failed!")
+                logger.error("  STDOUT:")
+                for line in e.stdout.splitlines():
+                    logger.error("    %s", line)
+                logger.error("  STDERR:")
+                for line in e.stderr.splitlines():
+                    logger.error("    %s", line)
             raise
 
     def rev_parse(self, rev: str = "HEAD") -> str:
@@ -782,7 +784,7 @@ class GitRepo:
         name: str,
     ) -> None:
         try:
-            self._run_git("remote", "get-url", name)
+            self._run_git("remote", "get-url", name, log_errors=False)
         except subprocess.CalledProcessError:
             self._run_git("remote", "add", name, url)
 

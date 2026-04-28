@@ -701,14 +701,8 @@ class GitRepo:
                 # Attempt to apply the formatted patch
                 # without any additional flags
                 [],
-                ["--3way"],
+                ["--3way", "--theirs"],
             ]
-            if self.is_merge_commit(rev):
-                # Attempt to apply the formatted patch with the upstream
-                # delta being preferred. This is useful/necessary when a
-                # frompull has been performed and a delta was generated
-                # by the final CL.
-                apply_flag_list.append(["--3way", "--theirs"])
             stored_exception = None
             try:
                 for args in apply_flag_list:

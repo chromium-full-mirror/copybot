@@ -740,9 +740,9 @@ def verify_repos_share_history_to_adjust_limits(
             config.upstream.history_starts_with
             and downstream.history_starts_with
         ):
-            logger.warning(
+            logger.info(
                 "Could not find relationship in repository histories,"
-                " starting from config 'history_starts_with"
+                " starting from config 'history_starts_with'"
             )
             upstream_hashes = config.upstream.repo.log_hashes(
                 revision_range=config.upstream.head_sha,

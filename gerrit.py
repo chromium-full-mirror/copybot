@@ -268,13 +268,18 @@ class GitRepo:
             )
         except subprocess.CalledProcessError as e:
             if log_errors:
-                logger.error("Git command failed!")
-                logger.error("  STDOUT:")
-                for line in e.stdout.splitlines():
-                    logger.error("    %s", line)
-                logger.error("  STDERR:")
-                for line in e.stderr.splitlines():
-                    logger.error("    %s", line)
+                logger.error(
+                    "Git command failed: %s",
+                    " ".join(shlex.quote(str(arg)) for arg in argv),
+                )
+                if e.stdout:
+                    logger.error("  STDOUT:")
+                    for line in e.stdout.splitlines():
+                        logger.error("    %s", line)
+                if e.stderr:
+                    logger.error("  STDERR:")
+                    for line in e.stderr.splitlines():
+                        logger.error("    %s", line)
             raise
 
     def rev_parse(self, rev: str = "HEAD") -> str:

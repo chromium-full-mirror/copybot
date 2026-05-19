@@ -304,7 +304,6 @@ def test_location_contains_fixed_commit_no_history_start() -> None:
     assert result is True
     downstream_config.repo.log_raw.assert_called_once_with(
         "chromeos-5.4/main",
-        "--first-parent",
         "--format=%s",
         "--grep",
         "fixes_tag_value$",

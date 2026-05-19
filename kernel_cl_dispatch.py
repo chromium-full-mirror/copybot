@@ -157,7 +157,6 @@ def _location_contains_fixed_commit(
     else:
         grep_results = downstream.repo.log_raw(
             f"{downstream.remote_name}/{downstream.branch}",
-            "--first-parent",
             "--format=%s",
             "--grep",
             f"{fixes_tag}$",

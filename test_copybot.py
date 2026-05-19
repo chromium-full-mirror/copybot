@@ -63,6 +63,7 @@ def cons_default_downstream_config(
         push_options=[],
         hashtags=["copybot_tag"],
         prepend_subject="",
+        remove_subject_prefix="",
         insert_into_msg={},
         keep_pseudoheaders=[],
         limit=200,
@@ -312,6 +313,7 @@ def test_parse_copybot_config_from_file__downstreams(tmp_path):
             push_options=["uploadvalidator~skip", "nokeycheck"],
             hashtags=[],
             prepend_subject="",
+            remove_subject_prefix="",
             insert_into_msg={},
             keep_pseudoheaders=["Cq-Depend"],
             limit=200,
@@ -335,6 +337,7 @@ def test_parse_copybot_config_from_file__downstreams(tmp_path):
             push_options=["uploadvalidator~skip", "nokeycheck"],
             hashtags=[],
             prepend_subject="",
+            remove_subject_prefix="",
             insert_into_msg={},
             keep_pseudoheaders=["Cq-Depend"],
             limit=200,
@@ -530,6 +533,47 @@ def test_rewrite_commit_message(copybot_config) -> None:
         change_id=CHANGE_ID,
     )
     expected_commit_message = f"""Commit message
+
+Change-Id: {CHANGE_ID}
+GitOrigin-RevId: {REVISION}
+"""
+    expected_author = "Alan Turing<example@gmail.com-copybot-pick>"
+
+    assert reworded_message == expected_commit_message
+    assert updated_author == expected_author
+
+
+def test_rewrite_commit_message_remove_prefix(copybot_config) -> None:
+    copybot_config.downstreams[0].remove_subject_prefix = "Commit "
+    reworded_message, updated_author = copybot.rewrite_commit_message(
+        REVISION,
+        copybot_config.upstream,
+        copybot_config.downstreams[0],
+        change_id=CHANGE_ID,
+    )
+    expected_commit_message = f"""message
+
+Change-Id: {CHANGE_ID}
+GitOrigin-RevId: {REVISION}
+"""
+    expected_author = "Alan Turing<example@gmail.com-copybot-pick>"
+
+    assert reworded_message == expected_commit_message
+    assert updated_author == expected_author
+
+
+def test_rewrite_commit_message_remove_prefix_and_prepend(
+    copybot_config,
+) -> None:
+    copybot_config.downstreams[0].remove_subject_prefix = "Commit "
+    copybot_config.downstreams[0].prepend_subject = "[PREFIX] "
+    reworded_message, updated_author = copybot.rewrite_commit_message(
+        REVISION,
+        copybot_config.upstream,
+        copybot_config.downstreams[0],
+        change_id=CHANGE_ID,
+    )
+    expected_commit_message = f"""[PREFIX] message
 
 Change-Id: {CHANGE_ID}
 GitOrigin-RevId: {REVISION}

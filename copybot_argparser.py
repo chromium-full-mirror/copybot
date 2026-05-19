@@ -108,6 +108,8 @@ class DownstreamConfig(TargetConfig):
     hashtags: list[str]
     # A string to prepend the subject line with.
     prepend_subject: str
+    # A string to remove from the beginning of the subject line if it exists.
+    remove_subject_prefix: str
     # A Dict(line, message) of messages to add to the commit msg.
     insert_into_msg: dict[int, str]
     keep_pseudoheaders: list[str]
@@ -283,6 +285,12 @@ def create_arg_parser() -> configargparse.ArgumentParser:
     parser.add_argument(
         "--prepend-subject",
         help="Prepend the subject of commits made with this string",
+        default="",
+    )
+    parser.add_argument(
+        "--remove-subject-prefix",
+        help="Remove this string from the beginning of the commit "
+        "subject if it exists",
         default="",
     )
     parser.add_argument(
@@ -527,6 +535,7 @@ def parse_copybot_config(
                 push_options=opts.push_options,
                 hashtags=opts.hashtags,
                 prepend_subject=opts.prepend_subject,
+                remove_subject_prefix=opts.remove_subject_prefix,
                 insert_into_msg=parse_insert_into_msg(opts.insert_into_msg),
                 keep_pseudoheaders=list(opts.keep_pseudoheaders),
                 limit=opts.limit,

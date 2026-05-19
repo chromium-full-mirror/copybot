@@ -573,6 +573,10 @@ def rewrite_commit_message(
         * Updated author
     """
     commit_message = downstream.repo.get_commit_message()
+    if downstream.remove_subject_prefix:
+        if commit_message.startswith(downstream.remove_subject_prefix):
+            prefix_len = len(downstream.remove_subject_prefix)
+            commit_message = commit_message[prefix_len:]
     if downstream.prepend_subject:
         commit_message = downstream.prepend_subject + commit_message
     if downstream.insert_into_msg:
@@ -1256,6 +1260,7 @@ def upload_cl(
             push_options=["uploadvalidator~skip", "nokeycheck"],
             hashtags=hashtags,
             prepend_subject="",
+            remove_subject_prefix="",
             insert_into_msg={},
             keep_pseudoheaders=[],
             limit=0,

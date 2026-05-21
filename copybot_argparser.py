@@ -206,7 +206,7 @@ def generate_config(argv: Optional[List[str]] = None) -> None:
             elif isinstance(value, dict):
                 if len(value) == 0:
                     continue
-                value = f'"{value}"'
+                # otherwise leave the dict as it is
             elif isinstance(value, str) and name not in no_quote_keys:
                 value = f'"{value}"'
             outfile.write(f"{dest_to_option[name]} = {value}\n")

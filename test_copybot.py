@@ -836,6 +836,26 @@ class TestGenerateConfig:
                 ]
             )
 
+    def test_config_downstreams(self) -> None:
+        """Test that parsing downstream dictionaries behave as expected."""
+        config_file_path = "./tests/test_config_downstreams.ini"
+
+        with open(config_file_path, "r", encoding="utf-8") as f:
+            expected_content = f.read()
+
+        copybot_argparser.generate_config(
+            [
+                "--generate-config",
+                self.config_file,
+                "--config",
+                config_file_path,
+            ]
+        )
+        with open(self.config_file, "r", encoding="utf-8") as f:
+            generated_content = f.read()
+
+        assert generated_content == expected_content
+
 
 class TestCopyBotIntegration:
     """Integration tests for the Copybot."""

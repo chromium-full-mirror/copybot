@@ -99,6 +99,7 @@ def cons_default_copybot_config() -> copybot_argparser.CopybotConfig:
         add_pseudoheaders=[],
         ignore_change_id=False,
         gen_luci_jobs=False,
+        commit_message_formatting=None,
     )
     return copybot_config
 
@@ -579,6 +580,41 @@ Change-Id: {CHANGE_ID}
 GitOrigin-RevId: {REVISION}
 """
     expected_author = "Alan Turing<example@gmail.com-copybot-pick>"
+
+    assert reworded_message == expected_commit_message
+    assert updated_author == expected_author
+
+
+def test_rewrite_commit_message_chromeos_to_android(copybot_config) -> None:
+    input_message = f"""CHROMIUM: Commit message
+
+BUG=b:123
+TEST=did some tests
+Change-Id: {CHANGE_ID}
+"""
+
+    downstream = copybot_config.downstreams[0]
+    downstream.prepend_subject = "ANDROID: "
+    downstream.remove_subject_prefix = "CHROMIUM: "
+    downstream.repo.get_commit_message = mock.Mock(return_value=input_message)
+    reworded_message, updated_author = copybot.rewrite_commit_message(
+        REVISION,
+        copybot_config.upstream,
+        downstream,
+        change_id=CHANGE_ID,
+        commit_message_formatting=(
+            copybot_argparser.CommitMessageFormat.CHROMEOS_TO_ANDROID
+        ),
+    )
+    expected_author = "Alan Turing<example@gmail.com-copybot-pick>"
+    expected_commit_message = f"""ANDROID: Commit message
+
+Bug: b:123
+Test: did some tests
+Change-Id: {CHANGE_ID}
+GitOrigin-RevId: {REVISION}
+Signed-off-by: {expected_author}
+"""
 
     assert reworded_message == expected_commit_message
     assert updated_author == expected_author

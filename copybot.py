@@ -553,6 +553,9 @@ def rewrite_commit_message(
     sign_off: bool = False,
     additional_pseudoheaders: Iterable[str] = (),
     ignore_change_id: bool = False,
+    commit_message_formatting: (
+        copybot_argparser.CommitMessageFormat | None
+    ) = None,
 ) -> tuple[str, str]:
     """Reword the commit at HEAD with appropriate metadata.
 
@@ -567,6 +570,7 @@ def rewrite_commit_message(
             message.
         ignore_change_id: If true, will override all other change-id behavior.
             change_id's will not be maintained across cherry-picks.
+        commit_message_formatting: Format rule to apply to the commit message.
 
     Returns:
         * Reworded commit message
@@ -586,6 +590,27 @@ def rewrite_commit_message(
         ):
             tmp_commit_msg.insert(line, msg)
         commit_message = "\n".join(tmp_commit_msg)
+
+    if commit_message_formatting == (
+        copybot_argparser.CommitMessageFormat.CHROMEOS_TO_ANDROID
+    ):
+        commit_message = re.sub(
+            r"^BUG=",
+            "Bug: ",
+            commit_message,
+            flags=re.MULTILINE,
+        )
+        commit_message = re.sub(
+            r"^TEST=",
+            "Test: ",
+            commit_message,
+            flags=re.MULTILINE,
+        )
+
+        if "Bug" not in downstream.keep_pseudoheaders:
+            downstream.keep_pseudoheaders.append("Bug")
+        if "Test" not in downstream.keep_pseudoheaders:
+            downstream.keep_pseudoheaders.append("Test")
 
     if are_repos_related(upstream, downstream) and not ignore_change_id:
         if "Change-Id" not in downstream.keep_pseudoheaders:
@@ -620,6 +645,12 @@ def rewrite_commit_message(
     updated_author = (
         orig_author_name + "<" + author + sym + domain + "-copybot-pick" + ">"
     )
+
+    if commit_message_formatting == (
+        copybot_argparser.CommitMessageFormat.CHROMEOS_TO_ANDROID
+    ):
+        commit_message += f"Signed-off-by: {updated_author}\n"
+
     downstream.repo.reword(
         commit_message, sign_off=sign_off, update_author=updated_author
     )
@@ -1126,6 +1157,7 @@ def cherry_pick_commits_to_downstream(
                 sign_off=config.add_signed_off_by,
                 additional_pseudoheaders=config.add_pseudoheaders,
                 ignore_change_id=config.ignore_change_id,
+                commit_message_formatting=config.commit_message_formatting,
             )
         current_change = downstream.repo.log(num=1, fmt="%H")
         logger.info("Revision %s cherry-picked as %s", rev, current_change)

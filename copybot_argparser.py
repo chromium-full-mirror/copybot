@@ -8,6 +8,7 @@ Used for generating a common config to use across different downstream projects.
 """
 
 import dataclasses
+import enum
 import logging
 import os
 import pathlib
@@ -26,6 +27,12 @@ logger = logging.getLogger(__name__)
 
 class ConfigError(Exception):
     """The configuration for this copybot job is invalid."""
+
+
+class CommitMessageFormat(enum.Enum):
+    """Available formats that can be applied to a commit message."""
+
+    CHROMEOS_TO_ANDROID = "chromeos_to_android"
 
 
 def parse_insert_into_msg(insert_into_msg: list[str]) -> dict[int, str]:
@@ -161,6 +168,7 @@ class CopybotConfig:
     # Pseudoheaders to be added to the commit message
     add_pseudoheaders: list[str]
     gen_luci_jobs: bool
+    commit_message_formatting: CommitMessageFormat | None
 
 
 def generate_config(argv: Optional[List[str]] = None) -> None:
@@ -468,6 +476,12 @@ def create_arg_parser() -> configargparse.ArgumentParser:
         help="Generate LUCI config jobs",
         action="store_true",
     )
+    parser.add_argument(
+        "--commit-message-formatting",
+        help="Format the commit message according to the specified rule",
+        choices=[f.value for f in CommitMessageFormat],
+        default=None,
+    )
     return parser
 
 
@@ -606,6 +620,11 @@ def parse_copybot_config(
         first_unmerged=opts.first_unmerged,
         add_pseudoheaders=opts.add_pseudoheaders,
         gen_luci_jobs=opts.gen_luci_jobs,
+        commit_message_formatting=(
+            CommitMessageFormat(opts.commit_message_formatting)
+            if opts.commit_message_formatting
+            else None
+        ),
     )
 
     return copybot_config

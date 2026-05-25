@@ -148,7 +148,7 @@ def test_select_kernel_cl_dispatching_locations_no_dispatching(
     downstream_configs = [
         test_copybot.cons_default_downstream_config(remote_name="chromeos-5.4"),
         test_copybot.cons_default_downstream_config(
-            remote_name="android-mainline-desktop-core"
+            remote_name="android-mainline-desktop-intel-core"
         ),
     ]
     result = kernel_cl_dispatch.select_kernel_cl_dispatching_locations(
@@ -166,7 +166,7 @@ def test_select_kernel_cl_dispatching_locations_single_match(
     downstream_configs = [
         test_copybot.cons_default_downstream_config(remote_name="chromeos-5.4"),
         test_copybot.cons_default_downstream_config(
-            remote_name="android-mainline-desktop-core"
+            remote_name="android-mainline-desktop-intel-core"
         ),
     ]
     result = kernel_cl_dispatch.select_kernel_cl_dispatching_locations(
@@ -181,12 +181,12 @@ def test_select_kernel_cl_dispatching_locations_multiple_matches(
     upstream_config.repo.get_commit_message.return_value = """
     Subject: Test commit
 
-Branches: chromeos-5.4, android-mainline-desktop-core
+Branches: chromeos-5.4, android-mainline-desktop-intel-core
     """
     downstream_configs = [
         test_copybot.cons_default_downstream_config(remote_name="chromeos-5.4"),
         test_copybot.cons_default_downstream_config(
-            remote_name="android-mainline-desktop-core"
+            remote_name="android-mainline-desktop-intel-core"
         ),
         test_copybot.cons_default_downstream_config(remote_name="chromeos-6.1"),
     ]
@@ -228,7 +228,7 @@ Fixes: 86e5d3e6b77f ("CHROMIUM: Very important change")
         ),
         test_copybot.cons_default_downstream_config(remote_name="chromeos-6.1"),
         test_copybot.cons_default_downstream_config(
-            remote_name="android-mainline-desktop-core"
+            remote_name="android-mainline-desktop-intel-core"
         ),
     ]
     result = kernel_cl_dispatch.select_kernel_cl_dispatching_locations(
@@ -443,7 +443,7 @@ Fixes: {feature_commit_hash} ("{feature_commit_msg}")
 
         commit_msg = """CHROMIUM: Add new feature for selected kernel versions
 
-Branches: chromeos-6.1, android-mainline-desktop-core
+Branches: chromeos-6.1, android-mainline-desktop-intel-core
 """
         _, new_commit_hash = test_copybot.create_commit(
             upstream_path, upstream_repo, "new_feature", commit_msg
@@ -503,7 +503,7 @@ Branches: chromeos-6.1, android-mainline-desktop-core
             is_local=True,
         )
         downstream2 = test_copybot.cons_default_downstream_config(
-            remote_name="android-mainline-desktop-core",
+            remote_name="android-mainline-desktop-intel-core",
             repo=repos["downstream_targets"][1],
             url=str(repos["downstream_targets"][1].git_dir),
             history_starts_with=repos["common_ancestor_hash"],

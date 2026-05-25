@@ -506,6 +506,11 @@ def parse_copybot_config(
     if not opts.downstreams:
         opts.downstreams = {opts.downstream_remote_name: opts.downstream}
 
+    if opts.downstreams == {"preset": "kernel_cl_dispatcher_downstreams"}:
+        import kernel_cl_dispatch
+
+        opts.downstreams = kernel_cl_dispatch.KERNEL_CL_DISPATCHER_DOWNSTREAMS
+
     (
         _,
         upstream_url,

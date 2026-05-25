@@ -15,6 +15,7 @@ from unittest import mock
 import copybot
 import copybot_argparser
 import gerrit
+import kernel_cl_dispatch
 import pytest
 
 
@@ -347,6 +348,23 @@ def test_parse_copybot_config_from_file__downstreams(tmp_path):
             cl_dispatcher_history_starts_with="",
         ),
     ]
+
+
+@mock.patch("gerrit.GitRepo", GitRepoMock)
+def test_parse_copybot_config_from_file__downstreams_as_variable(tmp_path):
+    """Tests parsing a config from a file."""
+    argv = ["--config", "config/kernel/cl-dispatcher-staging.ini"]
+    config = copybot_argparser.parse_copybot_config(tmp_path, argv)
+
+    expected_downstreams = {
+        d.remote_name: f"{d.url}:{d.branch}:{d.subtree}"
+        for d in config.downstreams
+    }
+
+    assert (
+        expected_downstreams
+        == kernel_cl_dispatch.KERNEL_CL_DISPATCHER_DOWNSTREAMS
+    )
 
 
 @mock.patch("copybot.push_changes_to_downstream")

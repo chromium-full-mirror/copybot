@@ -153,11 +153,31 @@ def _validate_remote_name_match_stable_values(
         )
 
 
+def _strip_tags_from_commit_msg(commit_msg: str) -> str:
+    tags_to_strip = [
+        "CHROMIUM",
+        "ANDROID",
+        "FROMGIT",
+        "FROMLIST",
+        "UPSTREAM",
+        "BACKPORT",
+        "FIXUP",
+    ]
+    stripped = commit_msg
+    for tag in tags_to_strip:
+        stripped = stripped.replace(f"{tag}:", "")
+        # strip also if no semicolon was added after tag
+        stripped = stripped.replace(tag, "")
+    return stripped.strip()
+
+
 def _location_contains_fixed_commit(
     fixes_tag: str,
     downstream: copybot_argparser.DownstreamConfig,
 ) -> bool:
     """Return whether a location contains the patch mentioned by Fixes tag."""
+    stripped_fixes_tag = _strip_tags_from_commit_msg(fixes_tag)
+
     if downstream.cl_dispatcher_history_starts_with:
         revision_range = f"{downstream.cl_dispatcher_history_starts_with}..HEAD"
         grep_results = downstream.repo.log_raw(
@@ -165,19 +185,19 @@ def _location_contains_fixed_commit(
             "--ancestry-path",
             revision_range,
             "--grep",
-            f"{fixes_tag}$",
+            f"{stripped_fixes_tag}$",
         )
     else:
         grep_results = downstream.repo.log_raw(
             f"{downstream.remote_name}/{downstream.branch}",
             "--format=%s",
             "--grep",
-            f"{fixes_tag}$",
+            f"{stripped_fixes_tag}$",
         )
     if not grep_results:
         logger.info(
             '[Kernel CL Dispatcher] Could not find in commit "%s" in %s',
-            fixes_tag,
+            stripped_fixes_tag,
             downstream,
         )
     return bool(grep_results)

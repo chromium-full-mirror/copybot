@@ -8,6 +8,7 @@ import io
 import json
 import os
 import pathlib
+import shutil
 import tempfile
 from typing import Dict, Final, List, Tuple, Union
 from unittest import mock
@@ -324,8 +325,8 @@ def test_parse_copybot_config_from_file__downstreams(tmp_path):
             cl_dispatcher_history_starts_with="",
         ),
         copybot_argparser.DownstreamConfig(
-            history_limit=1000,
-            history_starts_with="ebebebeb",
+            history_limit=500,
+            history_starts_with="customhash123",
             url="https://android.googlesource.com/chromiumos/downstream2",
             branch="main2",
             subtree="subtree2",
@@ -345,7 +346,7 @@ def test_parse_copybot_config_from_file__downstreams(tmp_path):
             limit=200,
             include_paths=[],
             is_local=False,
-            cl_dispatcher_history_starts_with="",
+            cl_dispatcher_history_starts_with="dispatcherhash123",
         ),
     ]
 
@@ -357,7 +358,7 @@ def test_parse_copybot_config_from_file__downstreams_as_variable(tmp_path):
     config = copybot_argparser.parse_copybot_config(tmp_path, argv)
 
     expected_downstreams = {
-        d.remote_name: f"{d.url}:{d.branch}:{d.subtree}"
+        d.remote_name: {"url": f"{d.url}:{d.branch}:{d.subtree}"}
         for d in config.downstreams
     }
 
@@ -744,9 +745,7 @@ class TestGenerateConfig:
     def teardown_method(self):
         """Tear down after test cases, remove the temporary directory"""
         if self.temp_dir:
-            for file_name in os.listdir(self.temp_dir):
-                os.remove(os.path.join(self.temp_dir, file_name))
-            os.rmdir(self.temp_dir)
+            shutil.rmtree(self.temp_dir)
 
     def test_config_string_argument(self) -> None:
         """Test with an invalid string argument."""
@@ -909,6 +908,88 @@ class TestGenerateConfig:
             generated_content = f.read()
 
         assert generated_content == expected_content
+
+    def test_update_downstream_history_starts_with(self) -> None:
+        """Test that history-starts-with is updated in the config file."""
+        test_config_path = "tests/test_config.ini"
+        new_hash = "new_hash"
+
+        copybot_argparser.generate_config(
+            [
+                "--config",
+                test_config_path,
+                "--generate-config",
+                self.config_file,
+                "--downstream-history-starts-with",
+                new_hash,
+            ]
+        )
+
+        with open(self.config_file, "r", encoding="utf-8") as f:
+            updated_content = f.read()
+
+        assert (
+            f'downstream-history-starts-with = "{new_hash}"' in updated_content
+        )
+        assert (
+            'downstream-history-starts-with = "ebebebeb"' not in updated_content
+        )
+        # Check that other values are still present
+        assert 'upstream-history-starts-with = "deadbeef"' in updated_content
+        assert 'topic = "copybot-downstream"' in updated_content
+
+    def test_update_multiple_downstream_history_starts_with(self) -> None:
+        """Test updating history-starts-with for multiple downstreams."""
+        test_config_path = "tests/test_config_downstreams.ini"
+
+        # Parse the initial config
+        config = copybot_argparser.parse_copybot_config(
+            pathlib.Path(self.temp_dir),
+            argv=["--config", test_config_path],
+        )
+
+        # Simulate updating the history-starts-with for specific downstreams
+        for ds in config.downstreams:
+            if ds.remote_name == "first":
+                ds.history_starts_with = "new_hash_first"
+            elif ds.remote_name == "second":
+                ds.history_starts_with = "new_hash_second"
+                ds.history_limit = 400
+
+        update_config_args = [
+            "--config",
+            test_config_path,
+            "--generate-config",
+            self.config_file,
+        ]
+
+        # Re-generate the config with updated downstream objects
+        copybot_argparser.generate_config(
+            update_config_args, config.downstreams
+        )
+
+        with open(self.config_file, "r", encoding="utf-8") as f:
+            updated_content = f.read()
+
+        first_downstream = """\
+{'first': {'url': \
+'https://chromium.googlesource.com/chromiumos/downstream1:main1:subtree1', \
+'history-starts-with': 'new_hash_first', \
+'history-limit': 1000}\
+"""
+        second_downstream = """\
+'second': {'url': \
+'https://android.googlesource.com/chromiumos/downstream2:main2:subtree2', \
+'history-starts-with': 'new_hash_second', \
+'cl-dispatcher-history-starts-with': 'dispatcherhash123', \
+'history-limit': 400}\
+"""
+        assert first_downstream in updated_content
+        assert second_downstream in updated_content
+
+        # Ensure the global vars are still present and unchanged
+        assert 'downstream-history-starts-with = "ebebebeb"' in updated_content
+        assert 'upstream-history-starts-with = "deadbeef"' in updated_content
 
 
 class TestCopyBotIntegration:

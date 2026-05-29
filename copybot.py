@@ -1489,13 +1489,17 @@ def run_copybot(
                 config.config_file_path,
                 "--upstream-history-starts-with",
                 config.upstream.history_starts_with,
-                "--downstream-history-starts-with",
-                downstream.history_starts_with,
                 "--upstream-history-limit",
                 str(config.upstream.history_limit),
-                "--downstream-history-limit",
-                str(downstream.history_limit),
             ]
+            if len(config.downstreams) <= 1:
+                update_config_args += [
+                    "--downstream-history-starts-with",
+                    downstream.history_starts_with,
+                    "--downstream-history-limit",
+                    str(downstream.history_limit),
+                ]
+
             if config.dry_run:
                 logger.info(
                     "Would have called update configs with %s",
@@ -1510,7 +1514,9 @@ def run_copybot(
                 )
             else:
                 try:
-                    copybot_argparser.generate_config(update_config_args)
+                    copybot_argparser.generate_config(
+                        update_config_args, config.downstreams
+                    )
                     upload_updated_config(config, downstream)
                 except gerrit.MergeConflictsError as e:
                     logger.exception(

@@ -128,6 +128,22 @@ class DownstreamConfig(TargetConfig):
     # be traversed when looking for commits mentioned in FIXES tag.
     cl_dispatcher_history_starts_with: str
 
+    def deserialize_for_ini_config(self) -> tuple[str, dict]:
+        url = f"{self.url}:{self.branch}:{self.subtree}"
+        data = {
+            "url": url,
+            "history-starts-with": self.history_starts_with,
+            "cl-dispatcher-history-starts-with": (
+                self.cl_dispatcher_history_starts_with
+            ),
+            "history-limit": self.history_limit,
+        }
+        # return non-empty keys only
+        return (
+            self.remote_name,
+            {k: v for k, v in data.items() if v},
+        )
+
 
 @dataclasses.dataclass
 class UpstreamConfig(TargetConfig):
@@ -171,12 +187,19 @@ class CopybotConfig:
     commit_message_formatting: CommitMessageFormat | None
 
 
-def generate_config(argv: Optional[List[str]] = None) -> None:
+def generate_config(
+    argv: Optional[List[str]] = None,
+    downstreams: Optional[list[DownstreamConfig]] = None,
+) -> None:
     """Generates a config file from the defined command line options."""
     dest_to_option = {}
     dest_to_default = {}
     parser = create_arg_parser()
     opts = parser.parse_args(argv)
+    if downstreams:
+        opts.downstreams = dict(
+            d.deserialize_for_ini_config() for d in downstreams
+        )
 
     # Strip quotes from string values
     for key, value in vars(opts).items():
@@ -500,11 +523,20 @@ def parse_copybot_config(
         if isinstance(value, str):
             setattr(opts, key, value.strip('"'))
     downstream_configs = []
-    exclude_file_patterns = []
+
     filter_file_patterns = []
     upstream_config = None
     if not opts.downstreams:
-        opts.downstreams = {opts.downstream_remote_name: opts.downstream}
+        opts.downstreams = {
+            opts.downstream_remote_name: {
+                "url": opts.downstream,
+                "history-starts-with": opts.downstream_history_starts_with,
+                "cl-dispatcher-history-starts-with": (
+                    opts.downstream_cl_dispatcher_history_starts_with
+                ),
+                "history-limit": opts.downstream_history_limit,
+            }
+        }
 
     if opts.downstreams == {"preset": "kernel_cl_dispatcher_downstreams"}:
         import kernel_cl_dispatch
@@ -532,13 +564,13 @@ def parse_copybot_config(
     os.makedirs(upstream_git_dir, exist_ok=True)
     upstream_repo = gerrit.GitRepo(upstream_git_dir)
 
-    for remote_name, raw_downstream in opts.downstreams.items():
+    for remote_name, downstream_info in opts.downstreams.items():
         (
             downstream_is_local,
             downstream_url,
             downstream_branch,
             downstream_subtree,
-        ) = parse_repo_info(raw_downstream)
+        ) = parse_repo_info(downstream_info["url"])
 
         if downstream_is_local:
             downstream_git_dir = downstream_url
@@ -558,9 +590,13 @@ def parse_copybot_config(
                 insert_into_msg=parse_insert_into_msg(opts.insert_into_msg),
                 keep_pseudoheaders=list(opts.keep_pseudoheaders),
                 limit=opts.limit,
-                history_limit=opts.downstream_history_limit,
+                history_limit=downstream_info.get(
+                    "history-limit", opts.downstream_history_limit
+                ),
                 include_paths=opts.include_downstream,
-                history_starts_with=opts.downstream_history_starts_with,
+                history_starts_with=downstream_info.get(
+                    "history-starts-with", opts.downstream_history_starts_with
+                ),
                 url=downstream_url,
                 branch=downstream_branch,
                 subtree=downstream_subtree,
@@ -569,8 +605,9 @@ def parse_copybot_config(
                 history_length=0,
                 repo=gerrit.GitRepo(downstream_git_dir),
                 remote_name=remote_name,
-                cl_dispatcher_history_starts_with=(
-                    opts.downstream_cl_dispatcher_history_starts_with
+                cl_dispatcher_history_starts_with=downstream_info.get(
+                    "cl-dispatcher-history-starts-with",
+                    opts.downstream_cl_dispatcher_history_starts_with,
                 ),
             )
         )

@@ -41,23 +41,47 @@ BRANCHES_TAG: Literal["Branches"] = "Branches"
 FIXES_TAG: Literal["Fixes"] = "Fixes"
 FixesTagT = str | None
 
-KERNEL_CL_DISPATCHER_DOWNSTREAMS: dict[str, str] = {
+KERNEL_CL_DISPATCHER_DOWNSTREAMS: dict[str, dict[str, str]] = {
     # pylint: disable=line-too-long
     # ChromeOS
     # All deployed versions (go/cros-kernel-versions)
-    "chromeos-5.4": "https://chromium.googlesource.com/chromiumos/third_party/kernel:chromeos-5.4:",
-    "chromeos-5.10": "https://chromium.googlesource.com/chromiumos/third_party/kernel:chromeos-5.10:",
-    "chromeos-5.15": "https://chromium.googlesource.com/chromiumos/third_party/kernel:chromeos-5.15:",
-    "chromeos-6.1": "https://chromium.googlesource.com/chromiumos/third_party/kernel:chromeos-6.1:",
-    "chromeos-6.6": "https://chromium.googlesource.com/chromiumos/third_party/kernel:chromeos-6.6:",
-    "chromeos-6.12": "https://chromium.googlesource.com/chromiumos/third_party/kernel:chromeos-6.12:",
+    "chromeos-5.4": {
+        "url": "https://chromium.googlesource.com/chromiumos/third_party/kernel:chromeos-5.4:"
+    },
+    "chromeos-5.10": {
+        "url": "https://chromium.googlesource.com/chromiumos/third_party/kernel:chromeos-5.10:"
+    },
+    "chromeos-5.15": {
+        "url": "https://chromium.googlesource.com/chromiumos/third_party/kernel:chromeos-5.15:"
+    },
+    "chromeos-6.1": {
+        "url": "https://chromium.googlesource.com/chromiumos/third_party/kernel:chromeos-6.1:"
+    },
+    "chromeos-6.6": {
+        "url": "https://chromium.googlesource.com/chromiumos/third_party/kernel:chromeos-6.6:"
+    },
+    "chromeos-6.12": {
+        "url": "https://chromium.googlesource.com/chromiumos/third_party/kernel:chromeos-6.12:"
+    },
     # Android
-    "android16-6.12-desktop-core--staging": "https://android.googlesource.com/kernel/common:android16-6.12-desktop-cl-dispatcher:",
-    "android16-6.12-desktop-vendor": "https://arsp.googlesource.com/kernel-desktop/private/desktop-google:android16-6.12-desktop:",
-    "android16-6.12-desktop-mtk-vendor": "https://arsp.googlesource.com/kernel-desktop/private/desktop-google:android16-6.12-desktop-mtk:",
-    "android17-6.18-desktop-intel-vendor": "https://arsp.googlesource.com/kernel-desktop/private/desktop-google:android17-6.18-desktop-intel:",
-    "android-mainline-desktop-intel-core": "https://arsp.googlesource.com/kernel/common:android-mainline-desktop-intel:",
-    "android-mainline-desktop-intel-vendor": "https://arsp.googlesource.com/kernel-desktop/private/desktop-google:android-mainline-desktop-intel:",
+    "android16-6.12-desktop-core--staging": {
+        "url": "https://android.googlesource.com/kernel/common:android16-6.12-desktop-cl-dispatcher:"
+    },
+    "android16-6.12-desktop-vendor": {
+        "url": "https://arsp.googlesource.com/kernel-desktop/private/desktop-google:android16-6.12-desktop:"
+    },
+    "android16-6.12-desktop-mtk-vendor": {
+        "url": "https://arsp.googlesource.com/kernel-desktop/private/desktop-google:android16-6.12-desktop-mtk:"
+    },
+    "android17-6.18-desktop-intel-vendor": {
+        "url": "https://arsp.googlesource.com/kernel-desktop/private/desktop-google:android17-6.18-desktop-intel:"
+    },
+    "android-mainline-desktop-intel-core": {
+        "url": "https://arsp.googlesource.com/kernel/common:android-mainline-desktop-intel:"
+    },
+    "android-mainline-desktop-intel-vendor": {
+        "url": "https://arsp.googlesource.com/kernel-desktop/private/desktop-google:android-mainline-desktop-intel:"
+    },
     # pylint: enable=line-too-long
 }
 

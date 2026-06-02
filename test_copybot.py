@@ -279,7 +279,13 @@ def test_parse_copybot_config_from_file(tmp_path):
 def test_parsing_all_commited_config_files():
     """Smoke-test parsing all config files that are in the repository."""
     config_dir = pathlib.Path(__file__).parent / "config"
-    for config_file in config_dir.glob("*.ini"):
+    for config_file in config_dir.glob("**/*.ini"):
+        if "config_manager" in str(config_file) or "group_config" in str(
+            config_file
+        ):
+            # skip meta config files
+            continue
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             argv = ["--config", str(config_file)]
             try:

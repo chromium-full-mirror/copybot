@@ -525,6 +525,7 @@ def parse_copybot_config(
     downstream_configs = []
 
     filter_file_patterns = []
+    exclude_file_patterns = []
     upstream_config = None
     if not opts.downstreams:
         opts.downstreams = {

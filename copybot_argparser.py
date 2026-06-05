@@ -197,9 +197,24 @@ def generate_config(
     parser = create_arg_parser()
     opts = parser.parse_args(argv)
     if downstreams:
-        opts.downstreams = dict(
-            d.deserialize_for_ini_config() for d in downstreams
-        )
+        if opts.downstream:
+            if len(downstreams) > 1:
+                raise ConfigError(
+                    "Cannot have multiple downstreams with downstream-url"
+                )
+            d = downstreams[0]
+            opts.downstream = f"{d.url}:{d.branch}:{d.subtree}"
+            opts.downstream_history_starts_with = d.history_starts_with
+            opts.downstream_history_limit = d.history_limit
+            opts.downstream_cl_dispatcher_history_starts_with = (
+                d.cl_dispatcher_history_starts_with
+            )
+            opts.downstreams = {}
+        else:
+            opts.downstreams = dict(
+                d.deserialize_for_ini_config() for d in downstreams
+            )
+            opts.downstream = ""
 
     # Strip quotes from string values
     for key, value in vars(opts).items():

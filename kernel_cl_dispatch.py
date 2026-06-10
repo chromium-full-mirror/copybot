@@ -157,10 +157,14 @@ def _parse_kernel_dispatching_tags(
     )
 
     fixes_tag = pseudoheaders.get(FIXES_TAG).strip()
-    try:
-        fixes_commit_message = fixes_tag.split('"')[1]
-    except (IndexError, AttributeError):
-        logger.warning("Unsupported format or empty Fixes tag: %s", fixes_tag)
+
+    if fixes_tag:
+        try:
+            fixes_commit_message = fixes_tag.split('"')[1]
+        except (IndexError, AttributeError):
+            logger.warning("Unsupported format for Fixes tag: %s", fixes_tag)
+            fixes_commit_message = None
+    else:
         fixes_commit_message = None
     return branches_tags, fixes_commit_message
 

@@ -894,6 +894,14 @@ def checkout_downstream_repo(
     If there are pending changes at the stack, checkout `pending_rev`.
     Otherwise, checkout HEAD of downstream repository.
     """
+    try:
+        downstream.repo.reset_hard()
+        downstream.repo.cherry_pick_abort()
+    except subprocess.CalledProcessError as e:
+        logger.warning(
+            "Failed to clean downstream repo (normal on first run): %s", e
+        )
+
     if cl_count > 0:
         logger.info(
             "Found %d pending changes at the bottom of the stack.", cl_count

@@ -198,6 +198,12 @@ Change-Id: {CHANGE_ID}
     def push(self, *unused_args, **unused_kwargs) -> None:
         pass
 
+    def reset_hard(self) -> None:
+        pass
+
+    def cherry_pick_abort(self) -> None:
+        pass
+
     def get_cl_count(
         self,
         *unused_args,

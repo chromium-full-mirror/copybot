@@ -239,6 +239,10 @@ class GitRepoInterface(Protocol):
         rev: str,
     ) -> bool: ...
 
+    def reset_hard(self) -> None: ...
+
+    def cherry_pick_abort(self) -> None: ...
+
 
 class GitRepo:
     """Class wrapping common Git repository actions."""
@@ -582,6 +586,19 @@ class GitRepo:
         rev: str = "HEAD",
     ) -> bool:
         return len(self.get_parents(rev)) > 1
+
+    def reset_hard(self) -> None:
+        """Do a `git reset --hard`."""
+        self._run_git("reset", "--hard")
+
+    def cherry_pick_abort(self) -> None:
+        """Do a `git cherry-pick --abort`."""
+        try:
+            self._run_git("cherry-pick", "--abort")
+        except subprocess.CalledProcessError as e:
+            # Ignore if we are not in a cherry-pick state
+            if "no cherry-pick in progress" not in e.stderr:
+                raise
 
     def cherry_pick(
         self,

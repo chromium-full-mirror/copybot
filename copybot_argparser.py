@@ -523,6 +523,16 @@ def create_arg_parser() -> configargparse.ArgumentParser:
     return parser
 
 
+def _get_cache_dir_name(url: Union[str, "os.PathLike[str]"]) -> str:
+    """Generate a safe, unique directory name for a repo URL."""
+    url_str = os.fspath(url)
+    # Remove protocol (http://, https://, sso://, etc.)
+    sanitized = re.sub(r"^[a-zA-Z0-9+.-]+://", "", url_str)
+    # Replace non-alphanumeric characters with underscores
+    sanitized = re.sub(r"[^a-zA-Z0-9_.-]", "_", sanitized)
+    return sanitized
+
+
 def parse_copybot_config(
     git_root_dir: Union[str, "os.PathLike[str]"],
     argv: list[str] | None = None,
@@ -576,7 +586,9 @@ def parse_copybot_config(
         re.compile(str(pattern)) for pattern in opts.exclude_file_patterns
     ]
 
-    upstream_git_dir = os.path.join(git_root_dir, opts.upstream_remote_name)
+    upstream_git_dir = os.path.join(
+        git_root_dir, _get_cache_dir_name(upstream_url)
+    )
     os.makedirs(upstream_git_dir, exist_ok=True)
     upstream_repo = gerrit.GitRepo(upstream_git_dir)
 
@@ -591,7 +603,9 @@ def parse_copybot_config(
         if downstream_is_local:
             downstream_git_dir = downstream_url
         else:
-            downstream_git_dir = os.path.join(git_root_dir, remote_name)
+            downstream_git_dir = os.path.join(
+                git_root_dir, _get_cache_dir_name(downstream_url)
+            )
             os.makedirs(downstream_git_dir, exist_ok=True)
 
         downstream_configs.append(

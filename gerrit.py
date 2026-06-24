@@ -800,7 +800,7 @@ class GitRepo:
         name: str,
     ) -> None:
         try:
-            self._run_git("remote", "get-url", name, log_errors=False)
+            self._run_git("remote", "set-url", name, url, log_errors=False)
         except subprocess.CalledProcessError:
             self._run_git("remote", "add", name, url)
 

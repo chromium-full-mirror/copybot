@@ -899,11 +899,15 @@ def checkout_downstream_repo(
     """
     try:
         downstream.repo.reset_hard()
-        downstream.repo.cherry_pick_abort()
     except subprocess.CalledProcessError as e:
         logger.warning(
             "Failed to clean downstream repo (normal on first run): %s", e
         )
+    try:
+        downstream.repo.cherry_pick_abort()
+    except subprocess.CalledProcessError:
+        # if abort fails it means there was no cherry-pick in progress
+        pass
 
     if cl_count > 0:
         logger.info(

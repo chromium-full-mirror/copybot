@@ -119,15 +119,24 @@ SUPPORTED_BRANCHES_TAG_VALUES: set[str] = {
 }
 
 
-def _unravel_branches_tags(branches_tags: Iterable[str]) -> Iterator[str]:
+def _unravel_branches_tags(
+    commit_message: str,
+    branches_tags: Iterable[str],
+) -> Iterator[str]:
     """Unravel & flatten group mappings in stable tags into branches."""
     for branches_tag in branches_tags:
         if branches_tag in GROUPS_MAPPING:
-            yield from _unravel_branches_tags(GROUPS_MAPPING[branches_tag])
+            yield from _unravel_branches_tags(
+                commit_message, GROUPS_MAPPING[branches_tag]
+            )
         elif branches_tag in SUPPORTED_BRANCHES_TAG_VALUES:
             yield branches_tag
         else:
-            logger.error("Unsupported Branches tag value: %s", branches_tag)
+            logger.error(
+                "Unsupported Branches tag value: %s\nIn commit: %s",
+                branches_tag,
+                commit_message,
+            )
 
 
 def _parse_kernel_dispatching_tags(
@@ -149,7 +158,8 @@ def _parse_kernel_dispatching_tags(
     branches_tags = (
         set(
             _unravel_branches_tags(
-                [tag.strip() for tag in branches_tag_value.split(",")]
+                commit_message,
+                [tag.strip() for tag in branches_tag_value.split(",")],
             )
         )
         if branches_tag_value
@@ -162,7 +172,11 @@ def _parse_kernel_dispatching_tags(
         try:
             fixes_commit_message = fixes_tag.split('"')[1]
         except (IndexError, AttributeError):
-            logger.warning("Unsupported format for Fixes tag: %s", fixes_tag)
+            logger.warning(
+                "Unsupported format for Fixes tag: %s\nIn commit: %s",
+                fixes_tag,
+                commit_message,
+            )
             fixes_commit_message = None
     else:
         fixes_commit_message = None

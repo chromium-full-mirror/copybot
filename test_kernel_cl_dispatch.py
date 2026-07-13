@@ -18,6 +18,9 @@ import pytest
 import test_copybot
 
 
+COMMIT_MESSAGE = "CHROMIUM: Fix for slab allocator"
+
+
 @pytest.fixture(name="upstream_config")
 def upstream_config_fixture():
     config = test_copybot.cons_default_upstream_config()
@@ -28,14 +31,17 @@ def upstream_config_fixture():
 def test_unravel_branches_tags_single() -> None:
     tags = ["chromeos-5.4"]
     expected = ["chromeos-5.4"]
-    assert list(kernel_cl_dispatch._unravel_branches_tags(tags)) == expected
+    assert (
+        list(kernel_cl_dispatch._unravel_branches_tags(COMMIT_MESSAGE, tags))
+        == expected
+    )
 
 
 def test_unravel_branches_tags_group() -> None:
     tags = ["chromeos-all"]
     expected = kernel_cl_dispatch.CHROMEOS_BRANCHES_TAGS
     assert sorted(
-        list(kernel_cl_dispatch._unravel_branches_tags(tags))
+        list(kernel_cl_dispatch._unravel_branches_tags(COMMIT_MESSAGE, tags))
     ) == sorted(expected)
 
 
@@ -47,7 +53,7 @@ def test_unravel_branches_tags_mixed() -> None:
         + ["chromeos-6.12"]
     )
     assert sorted(
-        list(kernel_cl_dispatch._unravel_branches_tags(tags))
+        list(kernel_cl_dispatch._unravel_branches_tags(COMMIT_MESSAGE, tags))
     ) == sorted(expected)
 
 
@@ -56,7 +62,7 @@ def test_unravel_branches_tags_nested_group() -> None:
     tags = ["nested-all"]
     expected = kernel_cl_dispatch.CHROMEOS_BRANCHES_TAGS
     assert sorted(
-        list(kernel_cl_dispatch._unravel_branches_tags(tags))
+        list(kernel_cl_dispatch._unravel_branches_tags(COMMIT_MESSAGE, tags))
     ) == sorted(expected)
     del kernel_cl_dispatch.GROUPS_MAPPING["nested-all"]  # Clean up
 

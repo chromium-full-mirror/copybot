@@ -1369,8 +1369,8 @@ def run_copybot(
         config.upstream, "Upstream"
     )
 
-    for downstream in config.downstreams:
-        logger.info("Processing downstream %s", str(downstream))
+    for i, downstream in enumerate(config.downstreams):
+        logger.info("[%d] Processing downstream %s", i, str(downstream))
 
         if (m := is_server_gob(str(downstream.url))) is not None:
             downstream_gob_host = m.group(1)

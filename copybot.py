@@ -591,9 +591,12 @@ def rewrite_commit_message(
             tmp_commit_msg.insert(line, msg)
         commit_message = "\n".join(tmp_commit_msg)
 
-    if commit_message_formatting == (
-        copybot_argparser.CommitMessageFormat.CHROMEOS_TO_ANDROID
+    if (
+        commit_message_formatting
+        == (copybot_argparser.CommitMessageFormat.CHROMEOS_TO_ANDROID)
+        and "arsp.googlesource.com" in downstream.url
     ):
+        commit_message = commit_message.replace("CHROMIUM:", "ANDROID:")
         commit_message = re.sub(
             r"^BUG=",
             "Bug: ",

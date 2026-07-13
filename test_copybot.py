@@ -625,8 +625,7 @@ Change-Id: {CHANGE_ID}
 """
 
     downstream = copybot_config.downstreams[0]
-    downstream.prepend_subject = "ANDROID: "
-    downstream.remove_subject_prefix = "CHROMIUM: "
+    downstream.url = "https://arsp.googlesource.com/kernel/common"
     downstream.repo.get_commit_message = mock.Mock(return_value=input_message)
     reworded_message, updated_author = copybot.rewrite_commit_message(
         REVISION,
@@ -642,8 +641,9 @@ Change-Id: {CHANGE_ID}
 
 Bug: b:123
 Test: did some tests
-Change-Id: {CHANGE_ID}
+Original-Change-Id: {CHANGE_ID}
 GitOrigin-RevId: {REVISION}
+Change-Id: {CHANGE_ID}
 Signed-off-by: {expected_author}
 """
 

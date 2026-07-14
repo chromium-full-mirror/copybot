@@ -1651,16 +1651,20 @@ def create_luci_config(path: pathlib.Path):
 def create_luci_configs(
     config_dir: pathlib.Path = pathlib.Path(__file__).resolve().parent
     / "config",
+    config_repo_dir: pathlib.Path | None = None,
 ):
     luci_cfgs = create_luci_config(config_dir)
     copybot_proto = CopybotJobs(copybot_jobs=luci_cfgs)
     copybot_proto.copybot_jobs.sort(key=lambda item: item.group_name)
-    file_path = (
-        pathlib.Path(__file__).resolve().parent.parent
-        / "config"
-        / "misc_builders"
-        / "copybot_jobs.txtpb"
-    )
+    if config_repo_dir is None:
+        file_path = (
+            pathlib.Path(__file__).resolve().parent.parent
+            / "config"
+            / "misc_builders"
+            / "copybot_jobs.txtpb"
+        )
+    else:
+        file_path = config_repo_dir / "misc_builders" / "copybot_jobs.txtpb"
     with open(
         file_path,
         "w",
@@ -1701,12 +1705,20 @@ def main(argv: list[str] | None = None) -> None:
                 copybot_argparser.generate_config(argv)
                 upload_updated_config(config)
             elif config.gen_luci_jobs:
-                create_luci_configs()
+                if getattr(config.upstream, "repo", None) and hasattr(
+                    config.upstream.repo, "git_dir"
+                ):
+                    config_path = pathlib.Path(config.upstream.repo.git_dir)
+                else:
+                    config_path = (
+                        pathlib.Path(__file__).resolve().parent.parent
+                        / "config"
+                    )
+                create_luci_configs(
+                    config_repo_dir=config_path,
+                )
                 logger.info(
                     "LUCI CFG has been generated at infra/config/misc_builders"
-                )
-                config_path = (
-                    pathlib.Path(__file__).resolve().parent.parent / "config"
                 )
                 subprocess.run(
                     ["./regenerate_configs.py"],
@@ -1727,9 +1739,13 @@ def main(argv: list[str] | None = None) -> None:
                             "BUG=None\nTEST=./regenerate_configs.py"
                         ),
                         paths=[
-                            "generated/*",
-                            "luci/*",
-                            "misc_builders/copybot_jobs.txtpb",
+                            str(config_path / "generated"),
+                            str(config_path / "luci"),
+                            str(
+                                config_path
+                                / "misc_builders"
+                                / "copybot_jobs.txtpb"
+                            ),
                         ],
                         hashtags=opts.hashtags,
                         config_repo=gerrit.GitRepo(config_path),

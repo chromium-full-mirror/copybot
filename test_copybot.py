@@ -441,6 +441,57 @@ CQ-DEPEND: chromium:1234,chrome-internal:5678
     )
 
 
+class TestBackoffDecorator:
+    """Tests for backoff decorator."""
+
+    def test_success(self):
+        """Test backoff decorator when function succeeds immediately."""
+        mock_func = mock.Mock(return_value="success")
+        decorated_func = gerrit.backoff(delay=0.1, retries=3)(mock_func)
+
+        result = decorated_func()
+
+        assert result == "success"
+        mock_func.assert_called_once()
+
+    def test_non_http_error(self):
+        """Test backoff decorator when function raises non-HTTPError."""
+        mock_func = mock.Mock(side_effect=ValueError("oops"))
+        decorated_func = gerrit.backoff(delay=0.1, retries=3)(mock_func)
+
+        with pytest.raises(ValueError):
+            decorated_func()
+
+        mock_func.assert_called_once()
+
+    @mock.patch("time.sleep")
+    def test_retry_then_success(self, mock_sleep):
+        """Test backoff decorator when function fails then succeeds."""
+        http_error = gerrit.requests.exceptions.HTTPError("HTTP Error")
+        mock_func = mock.Mock(side_effect=[http_error, http_error, "success"])
+        decorated_func = gerrit.backoff(delay=1, retries=3)(mock_func)
+
+        result = decorated_func()
+
+        assert result == "success"
+        assert mock_func.call_count == 3
+        assert mock_sleep.call_count == 2
+        mock_sleep.assert_has_calls([mock.call(1), mock.call(2)])
+
+    @mock.patch("time.sleep")
+    def test_max_retries_reached(self, mock_sleep):
+        """Test backoff decorator when function repeatedly raises HTTPError."""
+        http_error = gerrit.requests.exceptions.HTTPError("HTTP Error")
+        mock_func = mock.Mock(side_effect=http_error)
+        decorated_func = gerrit.backoff(delay=1, retries=3)(mock_func)
+
+        with pytest.raises(gerrit.requests.exceptions.HTTPError):
+            decorated_func()
+
+        assert mock_func.call_count == 3
+        assert mock_sleep.call_count == 2
+
+
 @pytest.mark.parametrize(
     ["exception", "expected", "warnings"],
     [

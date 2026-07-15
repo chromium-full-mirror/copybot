@@ -46,6 +46,28 @@ _COMMIT_HASH_PATTERN = re.compile(r"\b[0-9a-f]{40}\b")
 _PARENT_COMMIT_HASH_PATTERN = re.compile(r"(?<=parent )\b[0-9a-f]{40}\b")
 
 
+def backoff(delay=2, retries=3):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            current_retry = 0
+            current_delay = delay
+            while current_retry < retries:
+                try:
+                    return func(*args, **kwargs)
+                except requests.exceptions.HTTPError as e:
+                    current_retry += 1
+                    if current_retry >= retries:
+                        logger.error("Failure after %d retries: %s", retries, e)
+                        raise e
+
+                    time.sleep(current_delay)
+                    current_delay *= 2
+
+        return wrapper
+
+    return decorator
+
+
 class MergeConflictBehavior(enum.Enum):
     """How to behave on merge conflicts.
 
@@ -972,6 +994,7 @@ class Gerrit:
     def __init__(self, hostname: str) -> None:
         self.hostname = hostname
 
+    @backoff(retries=5)
     def transact(
         self,
         url: str,
@@ -989,17 +1012,7 @@ class Gerrit:
             if r.status_code == requests.codes.too_many:
                 time.sleep(1)
                 continue
-            try:
-                r.raise_for_status()
-            except requests.exceptions.HTTPError as e:
-                logger.error(
-                    "Response text: %s\n\tError: %s\n\tStatus code: %s",
-                    {r.text},
-                    e,
-                    r.status_code,
-                )
-                raise e
-            assert False
+            r.raise_for_status()
 
         if not r.text:
             return None

@@ -1665,6 +1665,7 @@ def create_luci_configs(
         )
     else:
         file_path = config_repo_dir / "misc_builders" / "copybot_jobs.txtpb"
+    file_path.parent.mkdir(parents=True, exist_ok=True)
     with open(
         file_path,
         "w",
@@ -1709,6 +1710,12 @@ def main(argv: list[str] | None = None) -> None:
                     config.upstream.repo, "git_dir"
                 ):
                     config_path = pathlib.Path(config.upstream.repo.git_dir)
+                    if not getattr(config.upstream, "is_local", False):
+                        fetch_upstream_target_head_from_remote(config)
+                        if config.upstream.head_sha:
+                            config.upstream.repo.checkout(
+                                config.upstream.head_sha
+                            )
                 else:
                     config_path = (
                         pathlib.Path(__file__).resolve().parent.parent

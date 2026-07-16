@@ -547,14 +547,11 @@ def test_main_raise_error(tmp_path):
 
 def test_run_copybot__smoke_test(copybot_config) -> None:
     with (tempfile.TemporaryDirectory("_patches") as patch_dir,):
-        with pytest.raises(
-            copybot.NothingToDo, match=r"All found changes are pending"
-        ):
-            copybot.run_copybot(
-                GerritMock,
-                copybot_config,
-                patch_dir,
-            )
+        copybot.run_copybot(
+            GerritMock,
+            copybot_config,
+            patch_dir,
+        )
 
 
 def test_parse_insert_into_msg():

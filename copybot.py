@@ -1407,9 +1407,13 @@ def run_copybot(
             downstream, "Downstream"
         )
 
-        verify_repos_share_history_to_adjust_limits(
-            config, downstream, pending_changes
-        )
+        try:
+            verify_repos_share_history_to_adjust_limits(
+                config, downstream, pending_changes
+            )
+        except NothingToDo as e:
+            logger.info(str(e))
+            continue
 
         commit_files_map: dict[str, list[str]] = {}
         skipped_files_map: dict[str, list[str]] = {}
@@ -1456,13 +1460,17 @@ def run_copybot(
             downstream=downstream,
         )
 
-        checkout_downstream_repo(
-            downstream,
-            commits_to_copy,
-            pending_changes,
-            cl_count,
-            pending_rev,
-        )
+        try:
+            checkout_downstream_repo(
+                downstream,
+                commits_to_copy,
+                pending_changes,
+                cl_count,
+                pending_rev,
+            )
+        except NothingToDo as e:
+            logger.info(str(e))
+            continue
 
         updated_commits_to_copy = commits_to_copy[
             : (len(commits_to_copy) - cl_count)
@@ -1762,7 +1770,9 @@ def main(argv: list[str] | None = None) -> None:
             else:
                 run_copybot(gerrit.Gerrit, config, patch_dir)
         except NothingToDo as e:
-            logger.info("%s. Nothing to do!", str(e))
+            logger.info(
+                "%s. Nothing to do! Skipping all subsequent work", str(e)
+            )
         except Exception as e:
             err = e
             raise

@@ -827,12 +827,10 @@ class GitRepo:
             self._run_git("remote", "add", name, url)
 
 
-def _pseudoheader_pattern(separator: str = ":"):
+def _pseudoheader_pattern(separator: str = ":="):
     # Matches lines that look like a "header" (the conventional footer
     # lines in a commit message).
-    return re.compile(
-        rf"^(?{separator}[A-Za-z0-9]+-)*[A-Za-z0-9]+{separator}\s*"
-    )
+    return re.compile(rf"^(?:[A-Za-z0-9]+-)*[A-Za-z0-9]+[{separator}]\s*")
 
 
 class Pseudoheaders:
@@ -845,16 +843,26 @@ class Pseudoheaders:
     command parses them.
     """
 
-    def __init__(self, header_list: Iterable[Tuple[str, str]] = ()) -> None:
+    def __init__(
+        self,
+        header_list: Iterable[
+            Union[Tuple[str, str], Tuple[str, str, str]]
+        ] = (),
+    ) -> None:
+        self._header_list: List[List[str]] = []
         if header_list:
-            self._header_list = list(header_list)
-        else:
-            self._header_list = []
+            for item in header_list:
+                if len(item) == 3:
+                    self._header_list.append(list(item))
+                elif len(item) == 2:
+                    name, value = item
+                    sep = "=" if name.upper() in ("BUG", "TEST") else ": "
+                    self._header_list.append([name, value, sep])
 
     @classmethod
     def from_commit_message(
-        cls, commit_message: str, offset: int = 1, separator: str = ":"
-    ) -> Tuple[Pseudoheaders, str]:
+        cls, commit_message: str, offset: int = 1, separator: str = ":="
+    ) -> Tuple["Pseudoheaders", str]:
         """Parse pseudoheaders from a commit message.
 
         Args:
@@ -872,11 +880,20 @@ class Pseudoheaders:
 
         header_list = []
         for i, line in enumerate(message_lines):
-            if i < offset or not _pseudoheader_pattern(separator).match(line):
+            match = _pseudoheader_pattern(separator).match(line)
+            if i < offset or not match:
                 rewritten_message.append(line)
             else:
-                name, _, value = line.partition(separator)
-                header_list.append((name, value.strip()))
+                match_str = match.group(0)
+                sep_idx = -1
+                for c_idx, c in enumerate(match_str):
+                    if c in separator:
+                        sep_idx = c_idx
+                        break
+                name = line[:sep_idx]
+                sep_char = line[sep_idx : match.end()]
+                value = line[match.end() :]
+                header_list.append((name, value.strip(), sep_char))
 
         return cls(header_list), "".join(
             f"{line}\n" for line in rewritten_message
@@ -884,7 +901,7 @@ class Pseudoheaders:
 
     def prefix(
         self, prefix: str = "Original-", keep: Iterable[str] = ()
-    ) -> Pseudoheaders:
+    ) -> "Pseudoheaders":
         """Prefix all header keys with a string.
 
         Args:
@@ -898,20 +915,20 @@ class Pseudoheaders:
 
         # Constructing a new pseudoheaders dictionary ensures we
         # consider the keep list to be case insensitive.
-        keep_dict: Pseudoheaders = Pseudoheaders()
+        keep_dict = self.__class__()
         if keep:
             keep_dict = self.__class__([(key, "Keeping") for key in keep])
 
-        for key, value in self._header_list:
+        for key, value, sep in self._header_list:
             if keep_dict.get(key):
-                new_header_list.append((key, value))
+                new_header_list.append((key, value, sep))
             else:
-                new_header_list.append((f"{prefix}{key}", value))
+                new_header_list.append((f"{prefix}{key}", value, sep))
         return self.__class__(new_header_list)
 
     def __getitem__(self, item: str) -> str:
         """Get a header value by name."""
-        for key, value in self._header_list:
+        for key, value, _ in self._header_list:
             if key.lower() == item.lower():
                 return value
         raise KeyError(item)
@@ -925,11 +942,16 @@ class Pseudoheaders:
 
     def as_dict(self) -> Dict[str, str]:
         """Get the dict of stored values."""
-        return dict(self._header_list)
+        return {key: value for key, value, _ in self._header_list}
 
     def __setitem__(self, key: str, value: str) -> None:
         """Add a header."""
-        self._header_list.append((key, value))
+        for item in self._header_list:
+            if item[0].lower() == key.lower():
+                item[1] = value
+                return
+        sep = "=" if key.upper() in ("BUG", "TEST") else ": "
+        self._header_list.append([key, value, sep])
 
     def add_to_commit_message(self, commit_message: str) -> str:
         """Add our pseudoheaders to a commit message.
@@ -948,19 +970,26 @@ class Pseudoheaders:
 
         message_lines.append("")
 
-        for key, value in self._header_list:
-            message_lines.append(f"{key}: {value}")
+        for key, value, sep in self._header_list:
+            message_lines.append(f"{key}{sep}{value}")
         return "".join(f"{line}\n" for line in message_lines)
 
     def __str__(self) -> str:
-        return "\n".join(f"{key}:{value}" for key, value in self._header_list)
+        return "\n".join(
+            f"{key}{sep}{value}" for key, value, sep in self._header_list
+        )
 
-    def update(self, other: Union[dict, Pseudoheaders]) -> None:
+    def update(self, other: Union[dict, "Pseudoheaders"]) -> None:
         if isinstance(other, type(self)):
-            for key, value in other.as_dict().items():
-                self[key] = value
+            found_keys = {k.lower() for k, _, _ in self._header_list}
+            # pylint: disable=protected-access
+            for key, value, sep in other._header_list:
+                if key.lower() not in found_keys:
+                    self._header_list.append([key, value, sep])
+                else:
+                    self[key] = value
         elif isinstance(other, dict):
-            for key, value in other:
+            for key, value in other.items():
                 self[key] = value
         else:
             raise TypeError(f"Other class has conflicting type({type(other)})")

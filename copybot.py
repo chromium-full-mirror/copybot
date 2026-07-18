@@ -576,19 +576,32 @@ def rewrite_commit_message(
         * Reworded commit message
         * Updated author
     """
+    orig_author = upstream.repo.get_author_email(rev=upstream_rev)
+    author, sym, domain = orig_author.rpartition("@")
+    orig_author_name = upstream.repo.get_author_name(rev=upstream_rev)
+
+    def apply_placeholders(text: str) -> str:
+        text = text.replace("{UPSTREAM_HASH}", upstream_rev)
+        text = text.replace("{UPSTREAM_AUTHOR_NAME}", orig_author_name)
+        text = text.replace("{UPSTREAM_AUTHOR_EMAIL}", orig_author)
+        return text
+
     commit_message = downstream.repo.get_commit_message()
     if downstream.remove_subject_prefix:
         if commit_message.startswith(downstream.remove_subject_prefix):
             prefix_len = len(downstream.remove_subject_prefix)
             commit_message = commit_message[prefix_len:]
     if downstream.prepend_subject:
-        commit_message = downstream.prepend_subject + commit_message
+        prefix = apply_placeholders(downstream.prepend_subject)
+        commit_message = prefix + commit_message
     if downstream.insert_into_msg:
         tmp_commit_msg = commit_message.splitlines()
         for line, msg in sorted(
             downstream.insert_into_msg.items(), reverse=True
         ):
-            tmp_commit_msg.insert(line, msg)
+            if line < 0:
+                line = len(tmp_commit_msg) + line + 1
+            tmp_commit_msg.insert(line, apply_placeholders(msg))
         commit_message = "\n".join(tmp_commit_msg)
 
     if (
@@ -631,7 +644,7 @@ def rewrite_commit_message(
     if additional_pseudoheaders:
         for additional_header in additional_pseudoheaders:
             parsed, _ = gerrit.Pseudoheaders.from_commit_message(
-                additional_header, offset=0
+                apply_placeholders(additional_header), offset=0
             )
             pseudoheaders.update(parsed)
     if (
@@ -642,9 +655,6 @@ def rewrite_commit_message(
         pseudoheaders["Change-Id"] = change_id
 
     commit_message = pseudoheaders.add_to_commit_message(commit_message)
-    orig_author = upstream.repo.get_author_email(rev=upstream_rev)
-    author, sym, domain = orig_author.rpartition("@")
-    orig_author_name = upstream.repo.get_author_name(rev=upstream_rev)
     updated_author = (
         orig_author_name + "<" + author + sym + domain + "-copybot-pick" + ">"
     )

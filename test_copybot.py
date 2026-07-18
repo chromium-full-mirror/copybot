@@ -623,6 +623,64 @@ GitOrigin-RevId: {REVISION}
     assert updated_author == expected_author
 
 
+def test_rewrite_commit_message_with_placeholders(copybot_config) -> None:
+    copybot_config.downstreams[0].insert_into_msg = {
+        1: "Cherry-pick of {UPSTREAM_HASH}",
+    }
+    copybot_config.downstreams[0].prepend_subject = (
+        "[Subject Prefix Authored by {UPSTREAM_AUTHOR_NAME}] "
+    )
+
+    reworded_message, updated_author = copybot.rewrite_commit_message(
+        REVISION,
+        copybot_config.upstream,
+        copybot_config.downstreams[0],
+        change_id=CHANGE_ID,
+        additional_pseudoheaders=[
+            "Upstream-Author: {UPSTREAM_AUTHOR_NAME} <{UPSTREAM_AUTHOR_EMAIL}>"
+        ],
+    )
+
+    expected_commit_message = (
+        f"[Subject Prefix Authored by Alan Turing] Commit message\n"
+        f"Cherry-pick of {REVISION}\n"
+        "\n"
+        f"Change-Id: {CHANGE_ID}\n"
+        f"GitOrigin-RevId: {REVISION}\n"
+        "Upstream-Author: Alan Turing <example@gmail.com>\n"
+    )
+    expected_author = "Alan Turing<example@gmail.com-copybot-pick>"
+
+    assert reworded_message == expected_commit_message
+    assert updated_author == expected_author
+
+
+def test_rewrite_commit_message_with_negative_index(copybot_config) -> None:
+    copybot_config.downstreams[0].insert_into_msg = {
+        -1: "Appended at EOF with {UPSTREAM_HASH}",
+    }
+
+    reworded_message, updated_author = copybot.rewrite_commit_message(
+        REVISION,
+        copybot_config.upstream,
+        copybot_config.downstreams[0],
+        change_id=CHANGE_ID,
+    )
+
+    expected_commit_message = f"""Commit message
+
+
+Appended at EOF with {REVISION}
+
+Change-Id: {CHANGE_ID}
+GitOrigin-RevId: {REVISION}
+"""
+    expected_author = "Alan Turing<example@gmail.com-copybot-pick>"
+
+    assert reworded_message == expected_commit_message
+    assert updated_author == expected_author
+
+
 def test_rewrite_commit_message_remove_prefix(copybot_config) -> None:
     copybot_config.downstreams[0].remove_subject_prefix = "Commit "
     reworded_message, updated_author = copybot.rewrite_commit_message(

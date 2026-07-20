@@ -415,7 +415,14 @@ class GitRepo:
 
     def commit_file_list(self, rev: str = "HEAD") -> List[str]:
         """Get the files modified by a commit."""
-        result = self._run_git("show", "--pretty=", "--name-only", rev)
+        result = self._run_git(
+            "show",
+            "-m",
+            "--first-parent",
+            "--pretty=",
+            "--name-only",
+            rev,
+        )
         return result.stdout.splitlines()
 
     def show(

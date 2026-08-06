@@ -164,7 +164,7 @@ class GitRepoMock:
         return f"""Commit message
 
 Change-Id: {CHANGE_ID}
-        """
+"""
 
     def get_author_email(self, rev: str = "HEAD") -> str:
         del rev
@@ -397,7 +397,10 @@ def test_upload_updated_config(mock_push, copybot_config):
     copybot.upload_updated_config(copybot_config, config_repo=mock_repo)
 
     mock_repo.add.assert_called_once_with(["path/to/my_config.ini"])
-    mock_repo.commit.assert_called_once_with(expected_commit_msg)
+    mock_repo.commit.assert_called_once()
+    actual_commit_msg = mock_repo.commit.call_args[0][0]
+    assert actual_commit_msg.startswith(expected_commit_msg)
+    assert "\nChange-Id: I" in actual_commit_msg
 
     # Check that the push was called with correct arguments
     mock_push.assert_called_once()
@@ -668,7 +671,6 @@ def test_rewrite_commit_message_with_negative_index(copybot_config) -> None:
     )
 
     expected_commit_message = f"""Commit message
-
 
 Appended at EOF with {REVISION}
 

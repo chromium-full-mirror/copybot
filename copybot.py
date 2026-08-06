@@ -1301,6 +1301,8 @@ def upload_cl(
 ):
     if config_repo is None:
         config_repo = gerrit.GitRepo(pathlib.Path(__file__).resolve().parent)
+    if "Change-Id:" not in commit_msg:
+        commit_msg += f"\n\nChange-Id: {gerrit.generate_change_id()}\n"
     try:
         config_repo.add(paths)
         config_repo.commit(commit_msg)

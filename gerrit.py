@@ -623,10 +623,18 @@ class GitRepo:
     def cherry_pick_abort(self) -> None:
         """Do a `git cherry-pick --abort`."""
         try:
-            self._run_git("cherry-pick", "--abort")
+            self._run_git("cherry-pick", "--abort", log_errors=False)
         except subprocess.CalledProcessError as e:
             # Ignore if we are not in a cherry-pick state
-            if "no cherry-pick in progress" not in e.stderr:
+            if (
+                "no cherry-pick in progress" not in e.stderr
+                and "no cherry-pick or revert in progress" not in e.stderr
+            ):
+                logger.error(
+                    "Git command failed: %s\nSTDERR: %s",
+                    " ".join(shlex.quote(str(arg)) for arg in e.cmd),
+                    e.stderr,
+                )
                 raise
 
     def cherry_pick(
@@ -677,7 +685,7 @@ class GitRepo:
                         stage=True,
                     )
                 else:
-                    self._run_git("cherry-pick", "--abort")
+                    self.cherry_pick_abort()
                     if "The previous cherry-pick is now empty" in e.stderr:
                         raise EmptyCommitError() from e
                     raise MergeConflictError() from e

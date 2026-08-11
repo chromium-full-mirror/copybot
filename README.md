@@ -140,11 +140,27 @@ It is sometimes necessary to ignore a change for the lifetime of a repository.
 In an effort to minimize the number of pending changes left in the downstream
 repository, an ignore list CL can be used to list all of the hashes which
 should be ignored within a repository.  To accomplish this:
-- upload a CL to the corresponding downstream repo(if subtrees are used, it
-must also be within the desired subtree) with the list of commit hashes to be
-skipped in the CL.
-- Add the downstream topic and `copybot-skip` hashtag as you normally would from
-  the instructions in [skipping commits](#skipping-commits).
+- Upload a CL to the corresponding downstream repo listing the commit ID(s) to
+  be ignored in the commit message body.
+  - If this particular Copybot job uses subtrees, it is necessary to include a
+    placeholder file in the CL that is located at the same directory prefix
+    where upstream commits would be applied. The name or content of this file is
+    immaterial. Some examples repeat the list of skipped CLs in this file, but
+    this is unnecessary.
+
+    For an example, see [Ignore List Example with Subtrees]. In this
+    example, the upstream picolibc commits are applied to the subtree directory
+    `[zephyrproject]/modules/lib/picolibc`, so the placeholder file must be
+    located in `modules/lib/picolibc` as well.
+
+    A single ignore list CL can cover an entire downstream repository. However,
+    each upstream repo with commits to be skipped must have its own placeholder
+    file at its corresponding subtree directory prefix. The commit message of
+    the CL can contain the combined skipped commit IDs across upstream repos.
+- Add the downstream project hashtag and `copybot-skip` hashtag as you normally
+  would from the instructions in [skipping commits](#skipping-commits).
+- The CL should not be merged. It can either be left open or marked as
+  abandoned.
 
 On GoB, it is highly encouraged to add `Commit: false` to the commit message
 to prevent the CL from merging.
@@ -349,5 +365,6 @@ How to run it manually video: [copybot - manual run demo][copybot_video]
 [copybot_video]: https://drive.google.com/file/d/10aG8cMnR6TOpY5veLWSXX4MGeHA0RGel/view?resourcekey=0-zeid4OuuFAsysx0dJomQWg
 [go/copybot-bug]: http://go/copybot-bug
 [Ignore List Example]: https://chromium-review.googlesource.com/c/chromiumos/third_party/zephyr/nanopb/+/5349888
+[Ignore List Example with Subtrees]: https://chromium-review.git.corp.google.com/c/chromiumos/third_party/zephyrproject/+/8234379
 [`infra/config/misc_builders/copybot.star`](https://chrome-internal.googlesource.com/chromeos/infra/config/+/main/misc_builders/copybot.star).
 [LUCI Scheduler UI]: https://luci-scheduler.appspot.com/jobs/chromeos

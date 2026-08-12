@@ -827,7 +827,7 @@ def verify_repos_share_history_to_adjust_limits(
         raise NothingToDo("No CLs to downstream, and no pending modifications")
 
     if num_cls_to_downstream > config.upstream.history_limit > 0:
-        logger.warning(
+        logger.info(
             "There are %s CLs between HEAD and %s but the history limit is"
             " set to %s. Raising the history limit to accommodate this.",
             num_cls_to_downstream,

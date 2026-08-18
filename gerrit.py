@@ -131,16 +131,16 @@ class CopybotFatalError(Exception):
 class FetchError(CopybotFatalError):
     """Copybot died as it has failed to fetch."""
 
-    enum_name = "FAILURE_FETCH_ERROR"
+    enum_name = "FAILURE_UPSTREAM_FETCH_ERROR"
 
 
-class UpstreamFetchError(CopybotFatalError):
+class UpstreamFetchError(FetchError):
     """Copybot died as the upstream failed to fetch."""
 
     enum_name = "FAILURE_UPSTREAM_FETCH_ERROR"
 
 
-class DownstreamFetchError(CopybotFatalError):
+class DownstreamFetchError(FetchError):
     """Copybot died as the downstream failed to fetch."""
 
     enum_name = "FAILURE_DOWNSTREAM_FETCH_ERROR"

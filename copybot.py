@@ -1251,12 +1251,15 @@ def fetch_upstream_target_head_from_remote(
     config.upstream.repo.add_remote(
         config.upstream.url, config.upstream.remote_name
     )
-    config.upstream.head_sha = fetch_repo_head_sha(
-        config.upstream.repo,
-        config.upstream.remote_name,
-        config.upstream.branch,
-        config.upstream.subtree,
-    )
+    try:
+        config.upstream.head_sha = fetch_repo_head_sha(
+            config.upstream.repo,
+            config.upstream.remote_name,
+            config.upstream.branch,
+            config.upstream.subtree,
+        )
+    except gerrit.FetchError as e:
+        raise gerrit.UpstreamFetchError(str(e)) from e
 
 
 def fetch_downstream_target_head_from_remote(
@@ -1266,12 +1269,15 @@ def fetch_downstream_target_head_from_remote(
     """Fetch config targets head based on the given remote url & branch."""
     # Fetch downstream
     downstream.repo.add_remote(downstream.url, downstream.remote_name)
-    downstream.head_sha = fetch_repo_head_sha(
-        downstream.repo,
-        downstream.remote_name,
-        downstream.branch,
-        downstream.subtree,
-    )
+    try:
+        downstream.head_sha = fetch_repo_head_sha(
+            downstream.repo,
+            downstream.remote_name,
+            downstream.branch,
+            downstream.subtree,
+        )
+    except gerrit.FetchError as e:
+        raise gerrit.DownstreamFetchError(str(e)) from e
     if not downstream.head_sha:
         logger.warning(
             "Calling log on subtree did not return a hash,"

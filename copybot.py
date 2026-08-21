@@ -1582,6 +1582,19 @@ def run_copybot(
         )
 
 
+def truncate_to_bytes(
+    text: str, max_bytes: int, encoding: str = "utf-8"
+) -> str:
+    # 1. Encode the full string to bytes
+    encoded_bytes = text.encode(encoding)
+
+    # 2. Slice the byte array to the absolute maximum allowed
+    sliced_bytes = encoded_bytes[:max_bytes]
+
+    # 3. Decode back to a string, ignoring any partial characters at the end
+    return sliced_bytes.decode(encoding, errors="ignore")
+
+
 def write_json_error(
     path: pathlib.Path, err: Exception | None, warnings: io.StringIO
 ) -> None:
@@ -1602,6 +1615,8 @@ def write_json_error(
             err_json["failure_reason"] = gerrit.CopybotFatalError.enum_name
     warnings_str = warnings.getvalue()
     if warnings_str:
+        # Summary markdown has a secret limit of 4000 bytes.
+        warnings_str = truncate_to_bytes(warnings_str, 4000)
         err_json["summary_markdown"] = warnings_str
     logger.debug("JSON response: %s", err_json)
     path.write_text(json.dumps(err_json))

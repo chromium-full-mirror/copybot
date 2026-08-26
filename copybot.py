@@ -1163,7 +1163,7 @@ def cherry_pick_commits_to_downstream(
                     rev,
                 )
                 if was_commit_empty:
-                    logger.warning("Applied empty commit")
+                    logger.info("Applied empty commit")
                     empty_revs.append(rev)
                 else:
                     conflicted_revs.append(rev)
@@ -1193,14 +1193,12 @@ def cherry_pick_commits_to_downstream(
 def log_empty_commits(
     repo: gerrit.GitRepoInterface, empty_revs: list[str]
 ) -> None:
-    """Log warning commits that were not applied as they were empty."""
+    """Log commits that were not applied as they were empty."""
     emptylist = [repo.log(rev, fmt="%H %s", num=1) for rev in empty_revs]
     if emptylist:
-        logger.warning(
-            "The following commits were applied but they were empty:"
-        )
+        logger.info("The following commits were applied but they were empty:")
         for rev in emptylist:
-            logger.warning("- %s", rev)
+            logger.info("- %s", rev)
 
 
 def log_unapplied_merge_conflicted_commits(

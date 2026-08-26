@@ -664,11 +664,18 @@ class GitRepo:
 
         def _try_cherry_pick(extra_flags: List[str]) -> None:
             try:
-                self._run_git("cherry-pick", "-x", rev, *extra_flags)
+                self._run_git(
+                    "cherry-pick", "-x", rev, *extra_flags, log_errors=False
+                )
             except subprocess.CalledProcessError as e:
+                is_empty = (
+                    "The previous cherry-pick is now empty" in e.stderr
+                    or "The previous cherry-pick is now empty" in e.stdout
+                )
                 try:
                     self._run_git("rev-parse", "--verify", "CHERRY_PICK_HEAD")
-                    logger.warning("Could not cherry-pick")
+                    if not is_empty:
+                        logger.warning("Could not cherry-pick")
                 except subprocess.CalledProcessError as err:
                     if "is a merge but no -m option was given" in e.stderr:
                         logger.warning("Merge commit detected")
@@ -686,7 +693,7 @@ class GitRepo:
                     )
                 else:
                     self.cherry_pick_abort()
-                    if "The previous cherry-pick is now empty" in e.stderr:
+                    if is_empty:
                         raise EmptyCommitError() from e
                     raise MergeConflictError() from e
 

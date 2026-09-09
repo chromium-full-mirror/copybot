@@ -812,6 +812,7 @@ def verify_repos_share_history_to_adjust_limits(
     else:
         config.upstream.history_starts_with = last_related_rev
         downstream.history_starts_with = last_related_downstream_rev
+        config.upstream.history_length = num_cls_to_downstream + 1
 
     logger.info("Found: %s new changes to downstream", num_cls_to_downstream)
 

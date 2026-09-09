@@ -102,6 +102,7 @@ def cons_default_copybot_config() -> copybot_argparser.CopybotConfig:
         ignore_change_id=False,
         gen_luci_jobs=False,
         commit_message_formatting=None,
+        first_parent=True,
     )
     return copybot_config
 
@@ -127,9 +128,15 @@ class GitRepoMock:
     # Mocked methods to allow for call assertions
     add = None
     commit = None
+    first_parent: bool = True
 
-    def __init__(self, git_dir: Union[str, "os.PathLike[str]"] = "") -> None:
+    def __init__(
+        self,
+        git_dir: Union[str, "os.PathLike[str]"] = "",
+        first_parent: bool = True,
+    ) -> None:
         self.git_dir = pathlib.Path(git_dir)
+        self.first_parent = first_parent
 
         self.add = mock.Mock()
         self.commit = mock.Mock()
@@ -1308,3 +1315,71 @@ class TestCopyBotIntegration:
         # Verify the origin revision ID is correct
         origin_rev = gerrit.get_origin_rev_id(new_msg)
         assert origin_rev == git_repos["commit_to_copy"]
+
+
+@mock.patch("gerrit.GitRepo", GitRepoMock)
+def test_first_parent_config(tmp_path):
+    """Test first-parent flag parsing from CLI and INI."""
+    base_args = [
+        "--upstream-url",
+        "https://example.com/upstream:main:",
+        "--downstream-url",
+        "https://example.com/downstream:main:",
+    ]
+    # Default is True
+    config = copybot_argparser.parse_copybot_config(tmp_path, base_args)
+    assert config.first_parent is True
+
+    # CLI --no-first-parent
+    config = copybot_argparser.parse_copybot_config(
+        tmp_path, base_args + ["--no-first-parent"]
+    )
+    assert config.first_parent is False
+
+    # CLI --first-parent
+    config = copybot_argparser.parse_copybot_config(
+        tmp_path, base_args + ["--first-parent"]
+    )
+    assert config.first_parent is True
+
+    # INI first-parent = false
+    ini_file = tmp_path / "test_fp.ini"
+    ini_file.write_text(
+        "[copybot]\n"
+        "upstream-url = https://example.com/upstream:main:\n"
+        "downstream-url = https://example.com/downstream:main:\n"
+        "first-parent = false\n"
+    )
+    config = copybot_argparser.parse_copybot_config(
+        tmp_path, ["--config", str(ini_file)]
+    )
+    assert config.first_parent is False
+
+
+def test_git_repo_first_parent_commands(tmp_path):
+    """Test that GitRepo commands use --first-parent appropriately."""
+    repo_true = gerrit.GitRepo(tmp_path, first_parent=True)
+    with mock.patch.object(repo_true, "_run_git") as mock_run:
+        mock_run.return_value.stdout = "1\n"
+        repo_true.log(revision_range="HEAD")
+        args = mock_run.call_args[0]
+        assert "--first-parent" in args
+        assert "--topo-order" not in args
+
+        mock_run.reset_mock()
+        repo_true.get_cl_count("revA", "revB")
+        args = mock_run.call_args[0]
+        assert "--first-parent" in args
+
+    repo_false = gerrit.GitRepo(tmp_path, first_parent=False)
+    with mock.patch.object(repo_false, "_run_git") as mock_run:
+        mock_run.return_value.stdout = "1\n"
+        repo_false.log(revision_range="HEAD")
+        args = mock_run.call_args[0]
+        assert "--first-parent" not in args
+        assert "--topo-order" in args
+
+        mock_run.reset_mock()
+        repo_false.get_cl_count("revA", "revB")
+        args = mock_run.call_args[0]
+        assert "--first-parent" not in args

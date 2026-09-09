@@ -179,8 +179,13 @@ class GitRepoInterface(Protocol):
     """Interface for common Git repository actions."""
 
     git_dir: pathlib.Path
+    first_parent: bool
 
-    def __init__(self, git_dir: Union[str, "os.PathLike[str]"]) -> None: ...
+    def __init__(
+        self,
+        git_dir: Union[str, "os.PathLike[str]"],
+        first_parent: bool = True,
+    ) -> None: ...
 
     def rev_parse(self, rev: str = "HEAD") -> str: ...
 
@@ -269,9 +274,14 @@ class GitRepoInterface(Protocol):
 class GitRepo:
     """Class wrapping common Git repository actions."""
 
-    def __init__(self, git_dir: Union[str, "os.PathLike[str]"]) -> None:
+    def __init__(
+        self,
+        git_dir: Union[str, "os.PathLike[str]"],
+        first_parent: bool = True,
+    ) -> None:
         """Do a `git init` to create a new repository."""
         self.git_dir = pathlib.Path(git_dir)
+        self.first_parent = first_parent
         if not (self.git_dir / ".git").exists():
             self._run_git("init")
 
@@ -360,7 +370,9 @@ class GitRepo:
         exclude_file_patterns: Iterable[str | "os.PathLike[str]"] = (),
     ) -> str:
         """Do a `git log`."""
-        extra_args = ["--first-parent"]
+        extra_args = (
+            ["--first-parent"] if self.first_parent else ["--topo-order"]
+        )
         if fmt:
             extra_args.append(f"--format={fmt}")
         if num:
@@ -830,7 +842,9 @@ class GitRepo:
         """Get the number of CLs between the specified revisions."""
         if not original_rev or not current_rev:
             return 0
-        args = ["--first-parent", "--count"]
+        args = ["--count"]
+        if self.first_parent:
+            args.insert(0, "--first-parent")
         args.append(f"{original_rev}..{current_rev}")
         if subtree:
             args.append("--")

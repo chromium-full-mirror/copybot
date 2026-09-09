@@ -7,6 +7,7 @@
 Used for generating a common config to use across different downstream projects.
 """
 
+import argparse
 import dataclasses
 import enum
 import logging
@@ -185,6 +186,7 @@ class CopybotConfig:
     add_pseudoheaders: list[str]
     gen_luci_jobs: bool
     commit_message_formatting: CommitMessageFormat | None
+    first_parent: bool = True
 
 
 def generate_config(
@@ -229,7 +231,14 @@ def generate_config(
         # Only act on parser objects that are command line arguments
         if action.option_strings:
             # Map the argument dest name to the option name
-            dest_to_option[action.dest] = action.option_strings[-1].lstrip("-")
+            if isinstance(action, argparse.BooleanOptionalAction):
+                dest_to_option[action.dest] = action.option_strings[0].lstrip(
+                    "-"
+                )
+            else:
+                dest_to_option[action.dest] = action.option_strings[-1].lstrip(
+                    "-"
+                )
             # Map the argument dest name to the option default value
             dest_to_default[action.dest] = action.default
     # Write the config file
@@ -490,6 +499,12 @@ def create_arg_parser() -> configargparse.ArgumentParser:
         action="store_true",
     )
     parser.add_argument(
+        "--first-parent",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Limit git log traversal to first-parent (defaults to true)",
+    )
+    parser.add_argument(
         "--upstream-remote-name",
         type=str,
         default="upstream",
@@ -590,7 +605,9 @@ def parse_copybot_config(
         git_root_dir, _get_cache_dir_name(upstream_url)
     )
     os.makedirs(upstream_git_dir, exist_ok=True)
-    upstream_repo = gerrit.GitRepo(upstream_git_dir)
+    upstream_repo = gerrit.GitRepo(
+        upstream_git_dir, first_parent=opts.first_parent
+    )
 
     for remote_name, downstream_info in opts.downstreams.items():
         (
@@ -633,7 +650,9 @@ def parse_copybot_config(
                 is_local=downstream_is_local,
                 head_sha=None,
                 history_length=0,
-                repo=gerrit.GitRepo(downstream_git_dir),
+                repo=gerrit.GitRepo(
+                    downstream_git_dir, first_parent=opts.first_parent
+                ),
                 remote_name=remote_name,
                 cl_dispatcher_history_starts_with=downstream_info.get(
                     "cl-dispatcher-history-starts-with",
@@ -697,6 +716,7 @@ def parse_copybot_config(
             if opts.commit_message_formatting
             else None
         ),
+        first_parent=opts.first_parent,
     )
 
     return copybot_config

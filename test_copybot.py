@@ -6,6 +6,7 @@
 
 import io
 import json
+import logging
 import os
 import pathlib
 import shutil
@@ -1383,3 +1384,48 @@ def test_git_repo_first_parent_commands(tmp_path):
         repo_false.get_cl_count("revA", "revB")
         args = mock_run.call_args[0]
         assert "--first-parent" not in args
+
+
+def test_cherry_pick_empty_merge_commit_no_warning_logged(tmp_path, caplog):
+    """Test that cherry-picking an empty merge commit logs no warnings."""
+    # pylint: disable=protected-access
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    patch_dir = tmp_path / "patches"
+    patch_dir.mkdir()
+
+    repo = gerrit.GitRepo(repo_dir)
+    repo._run_git("config", "user.email", "test@example.com")
+    repo._run_git("config", "user.name", "Test User")
+
+    # Create base commit in subtree
+    subtree = repo_dir / "sub"
+    subtree.mkdir()
+    (subtree / "file.txt").write_text("base\n")
+    repo.add(["sub"], stage=True)
+    base_rev = repo.commit("base commit")
+
+    # Create branch commit modifying file.txt
+    repo._run_git("checkout", "-b", "branch")
+    (subtree / "file.txt").write_text("branch change\n")
+    repo.add(["sub"], stage=True)
+    branch_rev = repo.commit("branch commit")
+
+    # Switch back to main and merge branch (--no-ff creates a merge commit)
+    repo._run_git("checkout", "-B", "main", base_rev)
+    repo._run_git("merge", "--no-ff", branch_rev, "-m", "Merge branch")
+    merge_rev = repo.rev_parse("HEAD")
+
+    # Reset working tree to branch_rev (simulating downstream already having
+    # branch_rev).
+    repo._run_git("checkout", "-b", "downstream", branch_rev)
+
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(gerrit.EmptyCommitError):
+            repo.cherry_pick(
+                merge_rev,
+                patch_dir=patch_dir,
+                downstream_subtree="sub",
+            )
+
+    assert not caplog.records

@@ -456,6 +456,7 @@ class GitRepo:
         include_paths: Optional[List[Union[str, "Pattern[str]"]]] = None,
         exclude_paths: Optional[List[Union[str, "os.PathLike[str]"]]] = None,
         extra_args=None,
+        log_errors: bool = True,
     ) -> "subprocess.CompletedProcess[str]":
         """Apply a patch to the staging area."""
         if extra_args is None:
@@ -468,7 +469,7 @@ class GitRepo:
             extra_args.extend(f"--exclude={path}" for path in exclude_paths)
 
         extra_args.append(str(patch))
-        return self._run_git("apply", *extra_args)
+        return self._run_git("apply", *extra_args, log_errors=log_errors)
 
     def commit(
         self,
@@ -478,6 +479,7 @@ class GitRepo:
         stage: bool = False,
         update_author: str = "",
         allow_empty: bool = False,
+        log_errors: bool = True,
     ) -> str:
         """Create a commit.
 
@@ -495,7 +497,9 @@ class GitRepo:
             extra_args.append("--signoff")
         if allow_empty:
             extra_args.append("--allow-empty")
-        self._run_git("commit", *extra_args, "-m", message)
+        self._run_git(
+            "commit", *extra_args, "-m", message, log_errors=log_errors
+        )
         return self.rev_parse()
 
     def reword(
@@ -752,6 +756,7 @@ class GitRepo:
                         ),
                         include_paths=include_paths,
                         exclude_paths=exclude_paths,
+                        log_errors=False,
                     )
                 except subprocess.CalledProcessError as e:
                     if (
@@ -782,32 +787,29 @@ class GitRepo:
                 ["--3way", "--theirs"],
             ]
             stored_exception = None
-            try:
-                for args in apply_flag_list:
-                    try:
-                        self.apply(
-                            patch=patch,
-                            path=self.get_subtree_lowest_working_dir(
-                                path=downstream_subtree
-                            ),
-                            include_paths=include_paths,
-                            exclude_paths=exclude_paths,
-                            extra_args=args,
-                        )
-                        stored_exception = None
-                        break
-                    except subprocess.CalledProcessError as e:
-                        stored_exception = e
-                if stored_exception:
-                    raise MergeConflictError() from stored_exception
-            except subprocess.CalledProcessError as e:
-                if not allow_conflict:
-                    raise MergeConflictError() from e
-                if (
-                    'No valid patches in input (allow with "--allow-empty")'
-                    in e.stderr
-                ):
-                    raise EmptyCommitError() from e
+            for args in apply_flag_list:
+                try:
+                    self.apply(
+                        patch=patch,
+                        path=self.get_subtree_lowest_working_dir(
+                            path=downstream_subtree
+                        ),
+                        include_paths=include_paths,
+                        exclude_paths=exclude_paths,
+                        extra_args=args,
+                        log_errors=False,
+                    )
+                    stored_exception = None
+                    break
+                except subprocess.CalledProcessError as e:
+                    if (
+                        'No valid patches in input (allow with "--allow-empty")'
+                        in e.stderr
+                    ):
+                        raise EmptyCommitError() from e
+                    stored_exception = e
+            if stored_exception and not allow_conflict:
+                raise MergeConflictError() from stored_exception
         self.add([downstream_subtree], stage=True, force=True)
         try:
             self.commit(
@@ -815,10 +817,12 @@ class GitRepo:
                 amend=False,
                 sign_off=False,
                 stage=True,
+                log_errors=False,
             )
         except subprocess.CalledProcessError as e:
             if "nothing to commit, working tree clean" in e.stdout:
                 raise EmptyCommitError() from e
+            raise
         return
 
     def push(self, url: str, refspec: str, options: Iterable[str] = ()) -> None:

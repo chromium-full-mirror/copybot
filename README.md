@@ -5,6 +5,7 @@ repository into Gerrit.  Currently, it's used for:
 * Zephyr
 * coreboot
 * kernel
+* ChromeOS Firmware (coreboot & EC milestone waterfall forward-porting and `BRANCH=` tag dispatch)
 * AMD Blobs
 * Fingerprint synchronization
 * Pigweed
@@ -34,9 +35,9 @@ CopyBot in favor of unified infrastructure.
 
 CopyBot is a set of Python scripts:
 
-`copybot.py`, `gerrit.py`, and `copybot_argparser.py`
+`copybot.py`, `gerrit.py`, `copybot_argparser.py`, and `kernel_cl_dispatch.py`
 
-`copybot.py` is the main entry point and is what to run to copy code from one
+`copybot.py` is the main entry point and orchestrates copying commits from one
 repository to another.  Its general usage is:
 
 ```
@@ -52,31 +53,39 @@ Run `./copybot.py --help` for a complete list of options supported.
 
 `copybot.py` will then:
 
-1. Search for the first commit in the downstream repo which has
-   `GitOrigin-RevId` or `Original-Commit-Id` specified in the footers,
-   or has the exact same hash as as an upstream commit.
+1. Discover historical relationships and identify downstream commits that
+   already incorporate upstream changes by matching:
+   * Exact commit hashes.
+   * `GitOrigin-RevId`, `Original-Commit-Id`, or `(cherry picked from commit <sha>)`
+     trailers in commit messages.
+   * `Change-Id` or `Original-Change-Id` matching on related GoB repositories
+     (checking merged history, active pending Gerrit CL stacks, and abandoned CLs).
 
-2. Identify the commits that need cherry-picked from that commit up to
-   the upstream limit (keeping in mind file filtering patterns may
-   cause certain commits to be skipped).
+2. Identify the commits that need to be cherry-picked from the boundary commit up to
+   the upstream limit (filtering by file patterns or commit filters as configured).
 
-3. Cherry-pick those commits onto the downstream repo.
+3. Cherry-pick those commits onto the downstream repo branch or dynamically
+   dispatched target branches.
 
-4. Push the changes to Gerrit.
+4. Push the changes to Gerrit (or leave them local in `--dry-run` mode).
 
 Use `--dry-run` to test changes without pushing to the downstream repository.
 
-`gerrit.py` aims to encapsulate the functionality needed by copybot to interact
-with git and GoB repos.  Common functions for managing queries, changes, metadata,
-refspecs, and pushing copied stacks can be found here.
+`gerrit.py` encapsulates git operations and GoB/Gerrit interactions.  It contains
+the `GitRepo` class (managing clones, fetches, cherry-picks, `merge-base`, `ls-remote`,
+and push refspecs) and Gerrit REST API client functions (managing changes, review
+labels, topics, hashtags, reviewers, and commit message rewriting).
 
-`copybot_argparser.py` aims to minimize the content in the main script by
-encapsulating the parsing, checking, and application of command line arguments.
+`copybot_argparser.py` encapsulates argument parsing, type validation, `.ini` config
+file loading, and LUCI job generation options.
+
+`kernel_cl_dispatch.py` provides specialized logic for ChromeOS kernel CL dispatching,
+parsing `Fixes:` and `Branches:` trailers and resolving target kernel branch groups.
 
 ## Using CopyBot
 
 CopyBot is intended to be run at a specified interval as a cron job.  The schedule
-can be found in each projects config directory in the `group_config.ini` file.
+can be found in each project's config directory in the `group_config.ini` file.
 
 Your job as a downstreamer is to:
 
@@ -102,16 +111,24 @@ Your job as a downstreamer is to:
 #### CopyBot Conflict Behavior
 
 CopyBot supports the following conflict behaviors specified on the command
-line with the `--merge-conflict-behavior` option
+line with the `--merge-conflict-behavior` option:
 
 - `FAIL`: Fail the copybot run immediately; do not upload any changes.
 - `SKIP`: Skip the conflicted CL, continue cherry-picking, and upload the
   resulting CL stack.
 - `STOP`: Stop at the first conflicted CL, and upload the CLs which were
-  cherry-picked before encountering the conflict.  Copybot will exit with
+  cherry-picked before encountering the conflict.  CopyBot will exit with
   failure status.
-- `ALLOW_CONFLICT`: After failing to cherry-pick a CL, commit the CL with
-  unresolved conflicts.  Copybot will exit with failure status.
+- `ALLOW_CONFLICT`: After failing to cherry-pick a CL cleanly, commit the CL
+  with unresolved conflict markers (`<<<<<<<` / `=======` / `>>>>>>>`), add
+  `Commit: false` to the commit message body to prevent accidental merges, and
+  upload the CL to Gerrit as a Work-In-Progress change. The original commit
+  author is preserved and notified on Gerrit so they can rebase and resolve the
+  conflict directly without the change being dropped or silently forgotten.
+  In multi-downstream or milestone waterfall runs, conflict errors are deferred
+  until all downstream targets are attempted, ensuring that other target branches
+  still receive cleanly applicable commits. CopyBot will exit with a failure
+  status at the end of the run if any branch encountered conflicts.
 
 #### Managing Conflicted Commits
 
@@ -211,7 +228,7 @@ Generate and/or update the .ini file by running copybot locally with the
 --generate-config command line option.  See the help for more info.
 
 Once the config file is uploaded, copybot will auto-generate LUCI builder configs
-and launch the new job. See the [Config Manager Job]
+and launch the new job (see [copybot.star] and the [Config Manager Job]).
 
 ### CopyBot support for repositories
 
@@ -284,6 +301,35 @@ may be of use:
 - Adding reviewers.
 - Adding CC.
 
+### First-Parent History Traversal (`--first-parent`)
+
+By default (`--first-parent = True`), CopyBot restricts git log traversals to
+first-parent history when searching for commits to copy. This prevents CopyBot from
+traversing into merged side branches or external pull request histories that might
+contain commits already integrated through merge commits. Pass `--no-first-parent`
+if full graph traversal is required.
+
+### Multi-Downstream Support (`--downstreams`)
+
+In addition to single `downstream-url` configurations, CopyBot supports
+multi-downstream configs where a single upstream feeds multiple downstreams defined
+as a dictionary in `.ini` files:
+
+```ini
+[copybot]
+upstream-url = "https://example.googlesource.com/repo:main:"
+downstreams = {
+    "target-a": {
+        "downstream-url": "https://example.googlesource.com/repo-a:main:",
+        "history-starts-with": "abcd1234...",
+    },
+    "target-b": {
+        "downstream-url": "https://example.googlesource.com/repo-b:main:",
+        "history-starts-with": "ef012345...",
+    }
+}
+```
+
 #### Testing copybot changes locally
 
 To test how a copybot change would have handled a problematic commit in the past
@@ -332,6 +378,85 @@ cherry-pick it.  See [Preserving Commits](#preserving-commits) if this is not
 the desired behavior.
 
 
+## Branch and Tag Dispatch Modes
+
+CopyBot supports several advanced dispatch modes for repositories where commits
+need to be routed to dynamically discovered branches, cascaded across milestones,
+or mapped across kernel versions.
+
+### Dynamic `BRANCH=` Tag Dispatch (`--dispatch-branch-tags`)
+
+Used in ChromeOS firmware (`coreboot` and `platform/ec`) to automatically cherry-pick
+commits on `main` to targeted board firmware branches (e.g., `firmware-skyrim-15390.B`)
+without maintaining static branch configurations (see [go/copybot-firmware-branch-dispatch]).
+
+* **Commit Pseudoheaders**: CopyBot parses `BRANCH=`, `Original-BRANCH=`, and `Branches:`
+  trailers on recent `main` commits (within `--upstream-history-limit`).
+* **Branch Resolution**: Supports exact branch names (e.g. `BRANCH=firmware-skyrim-15390.B`)
+  and board shorthands (e.g. `BRANCH=skyrim` or `BRANCH=firmware-corsola`), matching against
+  active remote branches via on-demand `git ls-remote --heads`.
+* **History Bounding**: Uses `git merge-base(target_branch, main)` as `history_starts_with`
+  for each resolved branch, so only commits newer than the branch split are evaluated.
+* **Header Preservation**: Downstreaming configs (e.g. `config/coreboot/main.ini`)
+  should include `--keep-pseudoheader BRANCH` and `--keep-pseudoheader Change-Id` so
+  upstream `review.coreboot.org` tags survive downstreaming into ChromeOS `main`.
+
+Example configuration (`config/coreboot/branch-dispatch.ini`):
+```ini
+[copybot]
+topic = "coreboot-branch-dispatch"
+upstream-url = "https://chromium.googlesource.com/chromiumos/third_party/coreboot:main:"
+downstream-url = "https://chromium.googlesource.com/chromiumos/third_party/coreboot:main:"
+dispatch-branch-tags = True
+upstream-history-limit = 100
+merge-conflict-behavior = ALLOW_CONFLICT
+keep-pseudoheader = ["Cq-Depend", "BUG", "TEST", "BRANCH", "Change-Id"]
+```
+
+### Dynamic Milestone Waterfall Dispatch (`--dynamic-downstream-pattern`)
+
+Solves the missing intermediate milestone backport problem (see [b/570505987](https://b.corp.google.com/issues/570505987)),
+where fixes backported to an older milestone branch (`firmware-R150-*`) are overlooked
+on intermediate branches (`R151`, `R152`, etc.) before reaching `main`.
+
+* **Dynamic Discovery**: Scans remote heads via `git ls-remote` using a regex pattern
+  (e.g. `--dynamic-downstream-pattern "^firmware-R(\d+)-[\d.]+\.B(?:-main)?$"`).
+  The milestone number is extracted via the capture group `(\d+)` (or an optional
+  named group `(?P<milestone>\d+)`).
+* **Milestone Filtering & Ordering**: Filters branches by `--min-milestone <M>` (e.g. `150`),
+  sorts them numerically, and appends `main` if `--include-main-branch` is set.
+* **Waterfall Cascade**: For each milestone branch `R_i`, CopyBot identifies candidate
+  commits in the post-branch window (`merge-base(R_i, main)..R_i`) and cascades them to
+  every newer milestone branch `R_j` (`j > i`) and `main`.
+* **Deduplication**: Automatically skips commits that already exist on downstream branches
+  or have pending/abandoned Gerrit CLs matching the commit's `Change-Id` or origin revision.
+* **Conflict Resiliency**: When paired with `--merge-conflict-behavior ALLOW_CONFLICT`,
+  conflicting commits are uploaded as WIP Gerrit changes, and conflict errors are deferred
+  until all milestone branches have been processed.
+
+Example configuration (`config/ec/milestone-dispatch.ini`):
+```ini
+[copybot]
+topic = "ec-milestone-dispatch"
+upstream-url = "https://chromium.googlesource.com/chromiumos/platform/ec:main:"
+downstream-url = "https://chromium.googlesource.com/chromiumos/platform/ec:main:"
+dynamic-downstream-pattern = "^firmware-R(\d+)-[\d.]+\.B-main$"
+min-milestone = 150
+include-main-branch = True
+merge-conflict-behavior = ALLOW_CONFLICT
+label = ["Commit-Queue+1"]
+```
+
+### Kernel CL Dispatcher (`--enable-kernel-cl-dispatcher`)
+
+Automates dispatching bug fixes across ChromeOS kernel versions (see [go/kernel-cl-dispatch]).
+
+* **Trailers**: Parses `Fixes:` and `Branches:` trailers on commits landed in the ChromeOS kernel.
+* **History Bounding**: Uses `--downstream-cl-dispatcher-history-starts-with` to mark the
+  historical SHA boundary when checking whether the fixed commit exists on the downstream target.
+* **Group Mapping**: Branch groups defined in `group_config.ini` map logical group names to
+  concrete downstream kernel branches.
+
 ## CopyBot Status
 
 To see the status of an individual CopyBot job, go to the corresponding LUCI
@@ -342,10 +467,15 @@ builder in the [LUCI Scheduler UI].  For a more composite view, visit the
 
 First of all, thanks!  Your improvements are very much welcomed!
 
-Python source code should be auto-formatted by `black` and `isort`.
-Run `black .` and `isort .` to do the formatting.
+Python source code must be formatted and verified using standard ChromeOS tools:
+* **Format code:** `cros format .` and `black .`
+* **Run tests & linters:** `./run_tests.sh`
 
-To run tests, use `./run_tests.sh`.
+`./run_tests.sh` executes the full verification suite:
+1. `pytest` unit & integration tests (`./pytest_wrapper -v`)
+2. Static type checking (`mypy .`)
+3. Code linting (`cros lint . --exclude OWNERS`)
+4. Formatting checks (`cros format --check .` and `black --check .`)
 
 ### Support
 
@@ -362,9 +492,11 @@ How to run it manually video: [copybot - manual run demo][copybot_video]
 [Copybara]: https://github.com/google/copybara
 [CopyBot Status Dashboard]: https://dashboards.corp.google.com/_e1e96010_77ed_4e80_8437_f8fb0bb0f77b
 [copybot-maintainers@google.com]: mailto:copybot-maintainers@google.com
+[copybot.star]: https://chrome-internal.googlesource.com/chromeos/infra/config/+/main/misc_builders/copybot.star
 [copybot_video]: https://drive.google.com/file/d/10aG8cMnR6TOpY5veLWSXX4MGeHA0RGel/view?resourcekey=0-zeid4OuuFAsysx0dJomQWg
 [go/copybot-bug]: http://go/copybot-bug
+[go/copybot-firmware-branch-dispatch]: https://goto.google.com/copybot-firmware-branch-dispatch
+[go/kernel-cl-dispatch]: https://goto.google.com/kernel-cl-dispatch
 [Ignore List Example]: https://chromium-review.googlesource.com/c/chromiumos/third_party/zephyr/nanopb/+/5349888
 [Ignore List Example with Subtrees]: https://chromium-review.git.corp.google.com/c/chromiumos/third_party/zephyrproject/+/8234379
-[`infra/config/misc_builders/copybot.star`](https://chrome-internal.googlesource.com/chromeos/infra/config/+/main/misc_builders/copybot.star).
 [LUCI Scheduler UI]: https://luci-scheduler.appspot.com/jobs/chromeos

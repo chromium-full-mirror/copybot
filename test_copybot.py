@@ -149,7 +149,7 @@ class GitRepoMock:
     def fetch(self, *unused_args, **unused_kwargs) -> str:
         return "fetched_commit_sha"
 
-    def checkout(self, ref: str, *unused_args: list[str]) -> None:
+    def checkout(self, ref: str, *unused_args: str) -> None:
         del ref
 
     def log(self, *unused_args, **unused_kwargs) -> str:
@@ -226,6 +226,24 @@ Change-Id: {CHANGE_ID}
     ) -> None:
         del url
         del name
+
+    def ls_remote_branches(
+        self,
+        remote: str,
+        pattern: str = "refs/heads/*",
+    ) -> Dict[str, str]:
+        del remote
+        del pattern
+        return {}
+
+    def merge_base(
+        self,
+        rev1: str,
+        rev2: str,
+    ) -> str:
+        del rev1
+        del rev2
+        return REVISION
 
     def is_merge_commit(
         self,
@@ -1429,3 +1447,119 @@ def test_cherry_pick_empty_merge_commit_no_warning_logged(tmp_path, caplog):
             )
 
     assert not caplog.records
+
+
+def test_get_origin_rev_id_cherry_picked_from() -> None:
+    """Test extracting origin rev from (cherry picked from commit ...) line."""
+    sha = "3864f9402b9694f398ef86d8aa226504731e8660"
+    msg = (
+        "Subject\n\nBody\n\n"
+        f"Change-Id: {CHANGE_ID}\n"
+        f"(cherry picked from commit {sha})\n"
+    )
+    assert gerrit.get_origin_rev_id(msg) == sha
+
+
+def test_get_change_id_fallback_original() -> None:
+    """Test get_change_id falls back to Original-Change-Id."""
+    msg = f"Subject\n\nOriginal-Change-Id: {CHANGE_ID}\n"
+    assert gerrit.get_change_id(msg) == CHANGE_ID
+
+
+def test_fetch_upstream_change_ids_zero_limit_means_unlimited() -> None:
+    """Test fetch_upstream_change_ids with limit=0 indexes all commits."""
+    repo = GitRepoMock()
+    res = copybot.fetch_upstream_change_ids(repo, [REVISION], limit=0)
+    assert res == {CHANGE_ID: REVISION}
+
+
+def test_find_commits_to_copy_skips_matching_change_id(copybot_config) -> None:
+    """Test find_commits_to_copy skips commits downstreamed by Change-Id."""
+    upstream_rev = "1111111111111111111111111111111111111111"
+    downstream_rev = "2222222222222222222222222222222222222222"
+    copybot_config.upstream.repo.log_hashes = mock.Mock(
+        return_value=[upstream_rev]
+    )
+    copybot_config.downstreams[0].repo.log_hashes = mock.Mock(
+        return_value=[downstream_rev]
+    )
+    commits_to_copy, *_ = copybot.find_commits_to_copy(
+        copybot_config,
+        copybot_config.upstream,
+        copybot_config.downstreams[0],
+        include_change_id=True,
+    )
+    assert not commits_to_copy
+
+
+def test_find_commits_to_copy_skips_abandoned_change_id(copybot_config) -> None:
+    """Test find_commits_to_copy skips commits with abandoned Change-Id."""
+    upstream_rev = "1111111111111111111111111111111111111111"
+    other_rev = "3333333333333333333333333333333333333333"
+    copybot_config.upstream.repo.log_hashes = mock.Mock(
+        return_value=[upstream_rev]
+    )
+    copybot_config.downstreams[0].repo.log_hashes = mock.Mock(return_value=[])
+    abandoned = {
+        other_rev: gerrit.GerritClInfo(
+            change_id=CHANGE_ID, hashtags="", ref="REF"
+        )
+    }
+    commits_to_copy, *_ = copybot.find_commits_to_copy(
+        copybot_config,
+        copybot_config.upstream,
+        copybot_config.downstreams[0],
+        abandoned_changes=abandoned,
+        include_change_id=True,
+    )
+    assert not commits_to_copy
+
+
+def test_git_repo_ls_remote_and_merge_base(tmp_path):
+    """Test GitRepo.ls_remote_branches and merge_base on a real git repo."""
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    repo = gerrit.GitRepo(repo_dir)
+    _, base_sha = create_commit(repo_dir, repo, "base")
+    repo.checkout("main", "-B")
+    _, main_sha = create_commit(repo_dir, repo, "main_file")
+    repo.checkout(base_sha)
+    repo.checkout("firmware-R150-16700.2.B", "-b")
+    _, branch_sha = create_commit(repo_dir, repo, "branch_file")
+
+    branches = repo.ls_remote_branches(str(repo_dir))
+    assert branches["main"] == main_sha
+    assert branches["firmware-R150-16700.2.B"] == branch_sha
+    assert repo.merge_base(main_sha, branch_sha) == base_sha
+
+
+def test_pseudoheaders_get_all() -> None:
+    """Test Pseudoheaders.get_all returns all matching header values."""
+    msg = (
+        "Subject\n\n"
+        "BRANCH=firmware-skyrim-15390.B\n"
+        "BRANCH=firmware-corsola-15194.B\n"
+        "Change-Id: I1234567890abcdef1234567890abcdef12345678\n"
+    )
+    pseudoheaders, _ = gerrit.Pseudoheaders.from_commit_message(msg)
+    assert pseudoheaders.get_all("BRANCH") == [
+        "firmware-skyrim-15390.B",
+        "firmware-corsola-15194.B",
+    ]
+    assert not pseudoheaders.get_all("NonExistent")
+
+
+def test_cherry_pick_allow_conflict_empty_commit(tmp_path) -> None:
+    """Test GitRepo.cherry_pick(allow_conflict=True) on an empty commit."""
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    repo = gerrit.GitRepo(repo_dir)
+    _, base_sha = create_commit(repo_dir, repo, "base")
+    repo.checkout("main", "-B")
+    _, main_sha = create_commit(repo_dir, repo, "shared.txt")
+    repo.checkout(base_sha)
+    repo.checkout("branch", "-b")
+    create_commit(repo_dir, repo, "shared.txt")
+
+    with pytest.raises(gerrit.EmptyCommitError):
+        repo.cherry_pick(main_sha, allow_conflict=True)

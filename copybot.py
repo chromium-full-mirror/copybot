@@ -117,7 +117,7 @@ def fetch_upstream_change_ids(
 ) -> dict[str, str]:
     """Fetch a mapping of commit's Change-Id's to their hashes."""
     iterable = (
-        commit_hashes if limit < 0 else itertools.islice(commit_hashes, limit)
+        commit_hashes if limit <= 0 else itertools.islice(commit_hashes, limit)
     )
     return {
         change_id: rev
@@ -402,6 +402,20 @@ def find_commits_to_copy(
         include_change_id=include_change_id,
     )
 
+    if pending_changes and include_change_id:
+        for cl in list(pending_changes.values()):
+            if (
+                cl.change_id in upstream_change_ids
+                and upstream_change_ids[cl.change_id] not in pending_changes
+            ):
+                pending_changes[upstream_change_ids[cl.change_id]] = cl
+
+    abandoned_change_id_set = (
+        {cl.change_id for cl in abandoned_changes.values() if cl.change_id}
+        if abandoned_changes and include_change_id
+        else set()
+    )
+
     counter = 0
     skip_cq_from_parse_logic = False
     reverse_search = upstream.history_limit == 0 and config.first_unmerged
@@ -450,7 +464,14 @@ def find_commits_to_copy(
             )
             continue
 
-        if abandoned_changes and rev in abandoned_changes:
+        commit_msg = upstream.repo.get_commit_message(rev)
+        if abandoned_changes and (
+            rev in abandoned_changes
+            or (
+                abandoned_change_id_set
+                and gerrit.get_change_id(commit_msg) in abandoned_change_id_set
+            )
+        ):
             logger.info("Skipping %s because it's abandoned", rev)
             continue
 
@@ -466,8 +487,11 @@ def find_commits_to_copy(
             ):
                 continue
 
+        origin_rev = gerrit.get_origin_rev_id(commit_msg)
         # If change is in pending list, allow relands
-        if rev in downstreamed_revs:
+        if rev in downstreamed_revs or (
+            origin_rev and origin_rev in downstreamed_revs
+        ):
             if pending_changes and rev in pending_changes:
                 logger.info(
                     "Found pending change that has already merged: %s", rev
@@ -1435,6 +1459,10 @@ def run_copybot(
         commit_files_map: dict[str, list[str]] = {}
         skipped_files_map: dict[str, list[str]] = {}
 
+        include_change_id = (
+            are_repos_related(config.upstream, downstream)
+            and not config.ignore_change_id
+        )
         (
             commits_to_copy,
             commit_files_map,
@@ -1448,6 +1476,7 @@ def run_copybot(
             downstream,
             pending_changes=pending_changes,
             abandoned_changes=abandoned_changes,
+            include_change_id=include_change_id,
         )
 
         if not commits_to_copy:

@@ -45,6 +45,11 @@ _COMMIT_HASH_PATTERN = re.compile(r"\b[0-9a-f]{40}\b")
 # Matches a full 40-character parent commit hash.
 _PARENT_COMMIT_HASH_PATTERN = re.compile(r"(?<=parent )\b[0-9a-f]{40}\b")
 
+# Matches Gerrit / git cherry-pick -x source commit footer.
+_CHERRY_PICKED_FROM_PATTERN = re.compile(
+    r"\(cherry picked from commit ([0-9a-f]{40})\)"
+)
+
 
 def backoff(delay=2, retries=3):
     def decorator(func):
@@ -191,7 +196,7 @@ class GitRepoInterface(Protocol):
 
     def fetch(self, remote: str, ref: str = "", subtree: str = "") -> str: ...
 
-    def checkout(self, ref: str, *args: list[str]) -> None: ...
+    def checkout(self, ref: str, *args: str) -> None: ...
 
     def log(
         self,
@@ -260,6 +265,18 @@ class GitRepoInterface(Protocol):
         url: str,
         name: str,
     ) -> None: ...
+
+    def ls_remote_branches(
+        self,
+        remote: str,
+        pattern: str = "refs/heads/*",
+    ) -> Dict[str, str]: ...
+
+    def merge_base(
+        self,
+        rev1: str,
+        rev2: str,
+    ) -> str: ...
 
     def is_merge_commit(
         self,
@@ -357,7 +374,7 @@ class GitRepo:
             revision_range="FETCH_HEAD", num=1, fmt="%H", subtree=subtree
         )
 
-    def checkout(self, ref: str, *args: list[str]) -> None:
+    def checkout(self, ref: str, *args: str) -> None:
         """Do a `git checkout`."""
         self._run_git("checkout", *args, ref)
 
@@ -697,16 +714,29 @@ class GitRepo:
                         logger.warning("Merge commit detected")
                     raise MergeConflictError() from err
                 if allow_conflict:
+                    if is_empty:
+                        self.cherry_pick_abort()
+                        raise EmptyCommitError() from e
                     if "patch does not apply" in e.stderr:
                         logger.warning("Patch does not apply to downstream")
                         raise CommitDoesNotApplyError() from e
                     self.add([downstream_subtree], stage=True, force=True)
-                    self.commit(
-                        self.get_commit_message(rev),
-                        amend=False,
-                        sign_off=False,
-                        stage=True,
-                    )
+                    try:
+                        self.commit(
+                            self.get_commit_message(rev),
+                            amend=False,
+                            sign_off=False,
+                            stage=True,
+                            log_errors=False,
+                        )
+                    except subprocess.CalledProcessError as commit_err:
+                        if (
+                            "nothing to commit" in commit_err.stdout
+                            or "nothing to commit" in commit_err.stderr
+                        ):
+                            self.cherry_pick_abort()
+                            raise EmptyCommitError() from commit_err
+                        raise
                 else:
                     self.cherry_pick_abort()
                     if is_empty:
@@ -866,6 +896,30 @@ class GitRepo:
         except subprocess.CalledProcessError:
             self._run_git("remote", "add", name, url)
 
+    def ls_remote_branches(
+        self,
+        remote: str,
+        pattern: str = "refs/heads/*",
+    ) -> Dict[str, str]:
+        """List branches on a remote repository via `git ls-remote --heads`."""
+        result = self._run_git("ls-remote", "--heads", remote, pattern)
+        branches: Dict[str, str] = {}
+        prefix = "refs/heads/"
+        for line in result.stdout.splitlines():
+            parts = line.split(None, 1)
+            if len(parts) == 2 and parts[1].startswith(prefix):
+                branches[parts[1][len(prefix) :]] = parts[0]
+        return branches
+
+    def merge_base(
+        self,
+        rev1: str,
+        rev2: str,
+    ) -> str:
+        """Find the best common ancestor between two commits."""
+        result = self._run_git("merge-base", rev1, rev2)
+        return result.stdout.strip()
+
 
 def _pseudoheader_pattern(separator: str = ":="):
     # Matches lines that look like a "header" (the conventional footer
@@ -979,6 +1033,14 @@ class Pseudoheaders:
             return self[item]
         except KeyError:
             return default
+
+    def get_all(self, item: str) -> List[str]:
+        """Get all header values matching name (case-insensitive)."""
+        return [
+            value
+            for key, value, _ in self._header_list
+            if key.lower() == item.lower()
+        ]
 
     def as_dict(self) -> Dict[str, str]:
         """Get the dict of stored values."""
@@ -1198,7 +1260,9 @@ def get_change_id(commit_message: str) -> str:
         The Change-Id if one was found, or None otherwise.
     """
     pseudoheaders, _ = Pseudoheaders.from_commit_message(commit_message)
-    return pseudoheaders.get("Change-Id")
+    return pseudoheaders.get("Change-Id") or pseudoheaders.get(
+        "Original-Change-Id"
+    )
 
 
 def get_origin_rev_id(commit_message: str) -> str:
@@ -1211,4 +1275,8 @@ def get_origin_rev_id(commit_message: str) -> str:
     origin_revid = pseudoheaders.get("GitOrigin-RevId")
     if not origin_revid:
         origin_revid = pseudoheaders.get("Original-Commit-Id")
+    if not origin_revid:
+        match = _CHERRY_PICKED_FROM_PATTERN.search(commit_message)
+        if match:
+            origin_revid = match.group(1)
     return origin_revid

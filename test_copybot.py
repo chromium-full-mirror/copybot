@@ -1920,3 +1920,49 @@ def test_milestone_waterfall_allow_conflict_defers_error(
     main_top_msg = repo.get_commit_message(repo.log_hashes("main")[0])
     assert gerrit.get_change_id(main_top_msg) == cid_conflict
     assert "Commit: false" not in main_top_msg
+
+
+@mock.patch("gerrit.GitRepo", GitRepoMock)
+def test_parse_firmware_dispatch_configs(tmp_path) -> None:
+    """Test parsing the coreboot and EC firmware dispatch config files."""
+    branch_cfg = copybot_argparser.parse_copybot_config(
+        tmp_path, ["--config", "config/coreboot/branch-dispatch.ini"]
+    )
+    assert branch_cfg.dispatch_branch_tags is True
+    assert not branch_cfg.dynamic_downstream_pattern
+    assert "BRANCH" in branch_cfg.downstreams[0].keep_pseudoheaders
+    assert (
+        branch_cfg.merge_conflict_behavior
+        is gerrit.MergeConflictBehavior.ALLOW_CONFLICT
+    )
+
+    milestone_cfg = copybot_argparser.parse_copybot_config(
+        tmp_path, ["--config", "config/coreboot/milestone-dispatch.ini"]
+    )
+    assert (
+        milestone_cfg.dynamic_downstream_pattern
+        == r"^firmware-R(\d+)-[\d.]+\.B$"
+    )
+    assert milestone_cfg.min_milestone == 150
+    assert milestone_cfg.include_main_branch is True
+    assert (
+        milestone_cfg.merge_conflict_behavior
+        is gerrit.MergeConflictBehavior.ALLOW_CONFLICT
+    )
+
+    ec_milestone_cfg = copybot_argparser.parse_copybot_config(
+        tmp_path, ["--config", "config/ec/milestone-dispatch.ini"]
+    )
+    assert (
+        ec_milestone_cfg.dynamic_downstream_pattern
+        == r"^firmware-R(\d+)-[\d.]+\.B-main$"
+    )
+
+    ec_jobs = copybot.create_luci_config(
+        pathlib.Path(__file__).parent / "config" / "ec"
+    )
+    assert len(ec_jobs) == 1
+    assert ec_jobs[0].config_file == [
+        "branch-dispatch.ini",
+        "milestone-dispatch.ini",
+    ]

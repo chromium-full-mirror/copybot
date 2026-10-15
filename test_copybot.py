@@ -1563,3 +1563,360 @@ def test_cherry_pick_allow_conflict_empty_commit(tmp_path) -> None:
 
     with pytest.raises(gerrit.EmptyCommitError):
         repo.cherry_pick(main_sha, allow_conflict=True)
+
+
+def test_parse_and_resolve_branch_tags() -> None:
+    """Test parsing BRANCH= tags and resolving exact and prefix matches."""
+    msg = (
+        "mb/google/skyrim: Enable feature\n\n"
+        "BUG=b:12345\n"
+        "BRANCH=none, firmware-skyrim-15390.B, firmware-corsola\n"
+        "Original-BRANCH=main, firmware-brya\n"
+        "Branches: N/A, all\n"
+    )
+    tags = copybot.parse_commit_branch_tags(msg)
+    assert tags == [
+        "firmware-skyrim-15390.B",
+        "firmware-corsola",
+        "firmware-brya",
+    ]
+    remote_branches = [
+        "main",
+        "firmware-skyrim-15390.B",
+        "firmware-corsola-15194.B",
+        "firmware-brya-14505.B",
+        "firmware-brya-14505.622.B",
+    ]
+    resolved = copybot.get_commit_target_branches(msg, remote_branches)
+    assert resolved == {
+        "firmware-skyrim-15390.B",
+        "firmware-corsola-15194.B",
+        "firmware-brya-14505.B",
+    }
+    assert not copybot.resolve_branch_tag("nonexistent", remote_branches)
+
+
+def test_discover_milestone_branches() -> None:
+    """Test discovering and sorting milestone branches by milestone number."""
+    remote_branches = {
+        "main": "111",
+        "firmware-R152-16430.B": "222",
+        "firmware-R149-16300.B": "333",
+        "firmware-R150-16371.B": "444",
+        "firmware-R151-16400.B": "555",
+        "firmware-skyrim-15390.B": "666",
+    }
+    discovered = copybot.discover_milestone_branches(
+        remote_branches,
+        r"^firmware-R(\d+)-.*",
+        min_milestone=150,
+    )
+    assert discovered == [
+        (150, "firmware-R150-16371.B"),
+        (151, "firmware-R151-16400.B"),
+        (152, "firmware-R152-16430.B"),
+    ]
+
+
+def test_branch_tag_dispatch_e2e(tmp_path, copybot_config):
+    """Test end-to-end BRANCH= tag dispatch across firmware branches."""
+    upstream_path = tmp_path / "upstream"
+    downstream_path = tmp_path / "downstream"
+    upstream_path.mkdir()
+    downstream_path.mkdir()
+
+    upstream_repo = gerrit.GitRepo(upstream_path)
+    downstream_repo = gerrit.GitRepo(downstream_path)
+
+    _, base_sha = create_commit(upstream_path, upstream_repo, "base_file")
+    upstream_repo.checkout("main", "-B")
+
+    # Setup downstream branches off base_sha
+    downstream_repo.add_remote(name=REMOTE_NAME, url=str(upstream_path))
+    downstream_repo.fetch(REMOTE_NAME)
+    downstream_repo.checkout(base_sha)
+    downstream_repo.checkout("main", "-b")
+    downstream_repo.checkout(base_sha)
+    downstream_repo.checkout("firmware-skyrim-15390.B", "-b")
+    downstream_repo.checkout(base_sha)
+    downstream_repo.checkout("firmware-corsola-15194.B", "-b")
+    downstream_repo.checkout("main")
+
+    # Create commits on upstream/main
+    _, _ = create_commit(
+        upstream_path,
+        upstream_repo,
+        "untagged_file",
+        "mb/google: Untagged change\n\nBRANCH=none\n"
+        "Change-Id: I1111111111111111111111111111111111111111\n",
+    )
+    _, skyrim_sha = create_commit(
+        upstream_path,
+        upstream_repo,
+        "skyrim_file",
+        "mb/google/skyrim: Fix frostflow\n\n"
+        "BRANCH=firmware-skyrim-15390.B\n"
+        "Change-Id: I2222222222222222222222222222222222222222\n",
+    )
+    _, corsola_sha = create_commit(
+        upstream_path,
+        upstream_repo,
+        "corsola_file",
+        "mb/google/corsola: Fix charging\n\n"
+        "BRANCH=firmware-corsola\n"
+        "Change-Id: I3333333333333333333333333333333333333333\n",
+    )
+
+    copybot_config.dry_run = True
+    copybot_config.dispatch_branch_tags = True
+    copybot_config.upstream.repo = upstream_repo
+    copybot_config.upstream.url = str(upstream_path)
+    copybot_config.upstream.branch = "main"
+    copybot_config.upstream.history_starts_with = base_sha
+
+    ds = copybot_config.downstreams[0]
+    ds.repo = downstream_repo
+    ds.url = str(downstream_path)
+    ds.history_starts_with = ""
+    ds.history_limit = 0
+    ds.is_local = True
+
+    with tempfile.TemporaryDirectory("_patches_branch_tag") as patch_dir:
+        copybot.run_copybot(GerritMock, copybot_config, patch_dir)
+
+    skyrim_hashes = downstream_repo.log_hashes("firmware-skyrim-15390.B")
+    assert len(skyrim_hashes) == 2
+    skyrim_msg = downstream_repo.get_commit_message(skyrim_hashes[0])
+    assert gerrit.get_origin_rev_id(skyrim_msg) == skyrim_sha
+
+    corsola_hashes = downstream_repo.log_hashes("firmware-corsola-15194.B")
+    assert len(corsola_hashes) == 2
+    corsola_msg = downstream_repo.get_commit_message(corsola_hashes[0])
+    assert gerrit.get_origin_rev_id(corsola_msg) == corsola_sha
+
+    # Verify idempotence on a second run
+    copybot_config.downstreams = [ds]
+    with tempfile.TemporaryDirectory("_patches_branch_tag_2") as patch_dir:
+        copybot.run_copybot(GerritMock, copybot_config, patch_dir)
+
+    assert len(downstream_repo.log_hashes("firmware-skyrim-15390.B")) == 2
+    assert len(downstream_repo.log_hashes("firmware-corsola-15194.B")) == 2
+
+
+def test_milestone_waterfall_dispatch_e2e(tmp_path, copybot_config):
+    """Test milestone waterfall propagation from older branches to newer."""
+    repo_path = tmp_path / "firmware_repo"
+    repo_path.mkdir()
+    repo = gerrit.GitRepo(repo_path)
+
+    _, _ = create_commit(repo_path, repo, "initial")
+    repo.checkout("main", "-B")
+
+    # Cut R149 (below min_milestone=150; should be ignored)
+    repo.checkout("firmware-R149-16300.B", "-b")
+    _, r149_only_sha = create_commit(
+        repo_path,
+        repo,
+        "r149_fix",
+        "R149 only fix\n\n"
+        "Change-Id: I0149014901490149014901490149014901490149\n",
+    )
+
+    # Advance main and cut R150
+    repo.checkout("main")
+    _, r150_bp = create_commit(
+        repo_path,
+        repo,
+        "main_before_r150",
+        "Main before R150\n\n"
+        "Change-Id: I0150000000000000000000000000000000000000\n",
+    )
+    repo.checkout("firmware-R150-16371.B", "-b")
+
+    # Advance main before cutting R151 (this commit is on main, R151, R152
+    # via branch history, and must NOT be duplicated when R150 waterfalls)
+    repo.checkout("main")
+    _, _ = create_commit(
+        repo_path,
+        repo,
+        "main_before_r151",
+        "Main before R151\n\n"
+        "Change-Id: I0151000000000000000000000000000000000000\n",
+    )
+    repo.checkout("firmware-R151-16400.B", "-b")
+
+    # Advance main before cutting R152
+    repo.checkout("main")
+    _, _ = create_commit(
+        repo_path,
+        repo,
+        "main_before_r152",
+        "Main before R152\n\n"
+        "Change-Id: I0152000000000000000000000000000000000000\n",
+    )
+    repo.checkout("firmware-R152-16430.B", "-b")
+
+    # Land a commit on main after R152 (Change-Id: I_already_on_main), then
+    # modify the same file again on main so cherry-picking it to main without
+    # Change-Id deduplication would fail with a merge conflict instead of
+    # being silently ignored as an empty commit.
+    repo.checkout("main")
+    cid_already_on_main = "Iaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    _, main_post_r152_sha = create_commit(
+        repo_path,
+        repo,
+        "panther_lake_fix",
+        "soc/intel/ptl: Fix S0ix\n\n" f"Change-Id: {cid_already_on_main}\n",
+    )
+    (repo_path / "panther_lake_fix").write_text("panther_lake_fix_v2_on_main")
+    repo.add(["panther_lake_fix"])
+    repo.commit(
+        "soc/intel/ptl: Follow-up on main\n\n"
+        "Change-Id: Idddddddddddddddddddddddddddddddddddddddd\n"
+    )
+
+    # Scenario 1 (b/570505987): Human cherry-picks panther_lake_fix to R150,
+    # forgetting R151 and R152. Also human lands a direct fix on R150 only.
+    repo.checkout("firmware-R150-16371.B")
+    cid_r150_only = "Ibbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    _, _ = create_commit(
+        repo_path,
+        repo,
+        "panther_lake_fix",
+        "soc/intel/ptl: Fix S0ix\n\n"
+        f"Change-Id: {cid_already_on_main}\n"
+        f"(cherry picked from commit {main_post_r152_sha})\n",
+    )
+    _, _ = create_commit(
+        repo_path,
+        repo,
+        "r150_direct_fix",
+        "ec/google: R150 direct fix\n\n" f"Change-Id: {cid_r150_only}\n",
+    )
+
+    # Scenario 2: Human lands a fix on R151 only, forgetting R152 and main.
+    repo.checkout("firmware-R151-16400.B")
+    cid_r151_only = "Icccccccccccccccccccccccccccccccccccccccc"
+    _, _ = create_commit(
+        repo_path,
+        repo,
+        "r151_direct_fix",
+        "ec/google: R151 direct fix\n\n" f"Change-Id: {cid_r151_only}\n",
+    )
+    repo.checkout("main")
+
+    copybot_config.dry_run = True
+    copybot_config.dynamic_downstream_pattern = r"^firmware-R(\d+)-.*"
+    copybot_config.min_milestone = 150
+    copybot_config.include_main_branch = True
+    copybot_config.upstream.repo = repo
+    copybot_config.upstream.url = str(repo_path)
+    copybot_config.upstream.branch = "main"
+
+    ds = copybot_config.downstreams[0]
+    ds.repo = repo
+    ds.url = str(repo_path)
+    ds.is_local = True
+    ds.keep_pseudoheaders = ["Change-Id"]
+
+    with tempfile.TemporaryDirectory("_patches_waterfall") as patch_dir:
+        copybot.run_copybot(GerritMock, copybot_config, patch_dir)
+
+    def _branch_change_ids(branch_name: str) -> list[str]:
+        hashes = repo.log_hashes(f"{ r150_bp }..{branch_name}")
+        return [
+            gerrit.get_change_id(repo.get_commit_message(h))
+            for h in hashes
+            if gerrit.get_change_id(repo.get_commit_message(h))
+        ]
+
+    # R149 must not be touched or propagated
+    assert repo.log_hashes("firmware-R149-16300.B")[0] == r149_only_sha
+    assert cid_already_on_main in _branch_change_ids("firmware-R151-16400.B")
+    assert cid_r150_only in _branch_change_ids("firmware-R151-16400.B")
+
+    r152_cids = _branch_change_ids("firmware-R152-16430.B")
+    assert r152_cids.count(cid_already_on_main) == 1
+    assert r152_cids.count(cid_r150_only) == 1
+    assert r152_cids.count(cid_r151_only) == 1
+
+    main_cids = _branch_change_ids("main")
+    assert main_cids.count(cid_already_on_main) == 1
+    assert main_cids.count(cid_r150_only) == 1
+    assert main_cids.count(cid_r151_only) == 1
+
+    # Verify idempotence on second run
+    r151_len = len(repo.log_hashes("firmware-R151-16400.B"))
+    r152_len = len(repo.log_hashes("firmware-R152-16430.B"))
+    main_len = len(repo.log_hashes("main"))
+    with tempfile.TemporaryDirectory("_patches_waterfall_2") as patch_dir:
+        copybot.run_copybot(GerritMock, copybot_config, patch_dir)
+    assert len(repo.log_hashes("firmware-R151-16400.B")) == r151_len
+    assert len(repo.log_hashes("firmware-R152-16430.B")) == r152_len
+    assert len(repo.log_hashes("main")) == main_len
+
+
+def test_milestone_waterfall_allow_conflict_defers_error(
+    tmp_path, copybot_config
+):
+    """Test ALLOW_CONFLICT in milestone waterfall processes all branches."""
+    repo_path = tmp_path / "conflict_repo"
+    repo_path.mkdir()
+    repo = gerrit.GitRepo(repo_path)
+
+    _, _ = create_commit(repo_path, repo, "target.txt", "Add target\n")
+    repo.checkout("main", "-B")
+    repo.checkout("firmware-R150-16371.B", "-b")
+    repo.checkout("main")
+    repo.checkout("firmware-R151-16400.B", "-b")
+
+    # Delete target.txt on R151 so modifying it on R150 triggers modify/delete
+    (repo_path / "target.txt").unlink()
+    repo.add(["target.txt"], stage=True)
+    repo.commit(
+        "Remove target on R151\n\n"
+        "Change-Id: I1511511511511511511511511511511511511511\n"
+    )
+
+    # Modify target.txt on R150
+    repo.checkout("firmware-R150-16371.B")
+    cid_conflict = "I1501501501501501501501501501501501501501"
+    (repo_path / "target.txt").write_text("modified_on_r150\n")
+    repo.add(["target.txt"])
+    r150_conflict_sha = repo.commit(
+        f"Modify target on R150\n\nChange-Id: {cid_conflict}\n"
+    )
+    repo.checkout("main")
+
+    copybot_config.dry_run = True
+    copybot_config.merge_conflict_behavior = (
+        gerrit.MergeConflictBehavior.ALLOW_CONFLICT
+    )
+    copybot_config.dynamic_downstream_pattern = r"^firmware-R(\d+)-.*"
+    copybot_config.min_milestone = 150
+    copybot_config.include_main_branch = True
+    copybot_config.upstream.repo = repo
+    copybot_config.upstream.url = str(repo_path)
+    copybot_config.upstream.branch = "main"
+
+    ds = copybot_config.downstreams[0]
+    ds.repo = repo
+    ds.url = str(repo_path)
+    ds.is_local = True
+    ds.keep_pseudoheaders = ["Change-Id"]
+
+    with tempfile.TemporaryDirectory("_patches_conflict") as patch_dir:
+        with pytest.raises(gerrit.MergeConflictsError) as exc_info:
+            copybot.run_copybot(GerritMock, copybot_config, patch_dir)
+    assert exc_info.value.commits == [r150_conflict_sha]
+
+    # Conflicted commit on R151 has Commit: false, AND main still received it
+    r151_top_msg = repo.get_commit_message(
+        repo.log_hashes("firmware-R151-16400.B")[0]
+    )
+    assert "Commit: false" in r151_top_msg
+    assert gerrit.get_change_id(r151_top_msg) == cid_conflict
+
+    main_top_msg = repo.get_commit_message(repo.log_hashes("main")[0])
+    assert gerrit.get_change_id(main_top_msg) == cid_conflict
+    assert "Commit: false" not in main_top_msg

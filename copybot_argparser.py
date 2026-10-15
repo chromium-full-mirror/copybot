@@ -187,6 +187,10 @@ class CopybotConfig:
     gen_luci_jobs: bool
     commit_message_formatting: CommitMessageFormat | None
     first_parent: bool = True
+    dispatch_branch_tags: bool = False
+    dynamic_downstream_pattern: str = ""
+    min_milestone: int = 0
+    include_main_branch: bool = False
 
 
 def generate_config(
@@ -535,6 +539,33 @@ def create_arg_parser() -> configargparse.ArgumentParser:
         choices=[f.value for f in CommitMessageFormat],
         default=None,
     )
+    parser.add_argument(
+        "--dispatch-branch-tags",
+        help="Dynamically dispatch upstream commits to downstream branches "
+        "specified in BRANCH=, Original-BRANCH=, or Branches: pseudoheaders",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--dynamic-downstream-pattern",
+        help="Regex pattern matching dynamic milestone branches via "
+        "git ls-remote (e.g. ^firmware-R(?P<milestone>\\d+)-[\\d.]+\\.B$)",
+        default="",
+    )
+    parser.add_argument(
+        "--min-milestone",
+        type=int,
+        default=0,
+        help="Minimum milestone number to include when "
+        "--dynamic-downstream-pattern is used",
+    )
+    parser.add_argument(
+        "--include-main-branch",
+        action="store_true",
+        default=False,
+        help="Include main branch as the final target in dynamic milestone "
+        "waterfall mode",
+    )
     return parser
 
 
@@ -717,6 +748,10 @@ def parse_copybot_config(
             else None
         ),
         first_parent=opts.first_parent,
+        dispatch_branch_tags=opts.dispatch_branch_tags,
+        dynamic_downstream_pattern=opts.dynamic_downstream_pattern,
+        min_milestone=opts.min_milestone,
+        include_main_branch=opts.include_main_branch,
     )
 
     return copybot_config

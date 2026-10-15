@@ -54,9 +54,11 @@ Usage: copybot.py [options...] upstream_repo:branch downstream_repo:branch
 from __future__ import annotations
 
 import ast
+import collections
 from collections.abc import Iterable
 import configparser
 import contextlib
+import copy
 import fnmatch
 import io
 import itertools
@@ -90,8 +92,98 @@ PRESERVE_TAG: Final[str] = "copybot-preserve"
 REWORD_TAG: Final[str] = "copybot-reword"
 REBASE_TAG: Final[str] = "copybot-rebase"
 
+_IGNORED_BRANCH_TAGS: Final[frozenset[str]] = frozenset(
+    {"", "none", "n/a", "na", "main", "all"}
+)
+_BRANCH_TAG_HEADERS: Final[tuple[str, ...]] = (
+    "BRANCH",
+    "Original-BRANCH",
+    "Branches",
+)
+_MILESTONE_NUMBER_PATTERN: Final[re.Pattern[str]] = re.compile(r"R(\d+)\b")
+
 
 logger = logging.getLogger(__name__)
+
+
+def parse_commit_branch_tags(commit_message: str) -> list[str]:
+    """Extract target branch tags from BRANCH=/Original-BRANCH=/Branches:."""
+    pseudoheaders, _ = gerrit.Pseudoheaders.from_commit_message(
+        commit_message, separator=":="
+    )
+    tags: list[str] = []
+    for header in _BRANCH_TAG_HEADERS:
+        for raw_val in pseudoheaders.get_all(header):
+            for token in re.split(r"[,\s]+", raw_val.strip()):
+                cleaned = token.strip()
+                if (
+                    cleaned.lower() not in _IGNORED_BRANCH_TAGS
+                    and cleaned not in tags
+                ):
+                    tags.append(cleaned)
+    return tags
+
+
+def resolve_branch_tag(
+    tag: str,
+    available_branches: Iterable[str],
+    log_missing: bool = True,
+) -> list[str]:
+    """Resolve a branch tag against available remote branches."""
+    branch_set = set(available_branches)
+    if tag in branch_set:
+        return [tag]
+    board = tag.removeprefix("firmware-")
+    shorthand_re = re.compile(
+        rf"^firmware-{re.escape(board)}-[\d.]+\.B(?:-main)?$"
+    )
+    matches = sorted(
+        (b for b in branch_set if shorthand_re.fullmatch(b)),
+        key=lambda b: (b.count("."), b),
+    )
+    if matches:
+        return [matches[0]]
+    if log_missing:
+        logger.warning("Branch tag %r not found in remote branches", tag)
+    return []
+
+
+def get_commit_target_branches(
+    commit_message: str,
+    available_branches: Iterable[str],
+    log_missing: bool = True,
+) -> set[str]:
+    """Return resolved target branch names for a commit message."""
+    branch_set = set(available_branches)
+    resolved: set[str] = set()
+    for tag in parse_commit_branch_tags(commit_message):
+        resolved.update(
+            resolve_branch_tag(tag, branch_set, log_missing=log_missing)
+        )
+    return resolved
+
+
+def discover_milestone_branches(
+    remote_branches: dict[str, str],
+    pattern: str,
+    min_milestone: int = 0,
+) -> list[tuple[int, str]]:
+    """Find and sort remote branches matching a milestone regex pattern."""
+    regex = re.compile(pattern)
+    matched: list[tuple[int, str]] = []
+    for branch_name in remote_branches:
+        m = regex.fullmatch(branch_name)
+        if not m:
+            continue
+        ms_str = m.groupdict().get("milestone")
+        if ms_str is None:
+            ms_match = _MILESTONE_NUMBER_PATTERN.search(branch_name)
+            ms_str = ms_match.group(1) if ms_match else "0"
+        milestone = int(ms_str)
+        if milestone >= min_milestone:
+            matched.append((milestone, branch_name))
+    matched.sort()
+    return matched
 
 
 class NothingToDo(Exception):
@@ -345,6 +437,7 @@ def find_commits_to_copy(
     pending_changes: dict[str, gerrit.GerritClInfo] | None = None,
     abandoned_changes: dict[str, gerrit.GerritClInfo] | None = None,
     include_change_id: bool = False,
+    skip_change_ids: set[str] | None = None,
 ) -> tuple[
     list[str],
     dict[str, list[str]],
@@ -363,6 +456,8 @@ def find_commits_to_copy(
         abandoned_changes: Changes abandoned in downstream repo.
         include_change_id: Bool specifying whether or not to
             consider Change-Ids
+        skip_change_ids: Optional set of Change-Ids already dispatched in
+            the current waterfall run.
 
     Returns:
         * A list of the commit hashes to copy.
@@ -401,6 +496,10 @@ def find_commits_to_copy(
         upstream_change_ids=upstream_change_ids,
         include_change_id=include_change_id,
     )
+    if skip_change_ids and include_change_id:
+        for cid in skip_change_ids:
+            if cid in upstream_change_ids:
+                downstreamed_revs.append(upstream_change_ids[cid])
 
     if pending_changes and include_change_id:
         for cl in list(pending_changes.values()):
@@ -423,6 +522,12 @@ def find_commits_to_copy(
         upstream_hashes.reverse()
         first_index = upstream_hashes.index(upstream.history_starts_with)
         del upstream_hashes[:first_index]
+
+    known_branches = (
+        {d.branch for d in config.downstreams} | {downstream.branch}
+        if config.dispatch_branch_tags
+        else set()
+    )
 
     for rev in upstream_hashes:
         # Early exit if limit reached to avoid inadvertent continuation
@@ -484,6 +589,12 @@ def find_commits_to_copy(
         if config.enable_kernel_cl_dispatcher:
             if not kernel_cl_dispatch.should_rev_be_dispatched_to_location(
                 upstream, downstream, rev
+            ):
+                continue
+
+        if config.dispatch_branch_tags:
+            if downstream.branch not in get_commit_target_branches(
+                commit_msg, known_branches, log_missing=False
             ):
                 continue
 
@@ -988,6 +1099,8 @@ def push_changes_to_downstream(
         except subprocess.CalledProcessError as e:
             raise gerrit.PushError(f"Failed to push to {downstream.url}") from e
     else:
+        if downstream.is_local and downstream.branch:
+            downstream.repo.checkout(downstream.branch, "-B")
         logger.info("Skip push due to dry/local run")
 
 
@@ -1396,6 +1509,380 @@ def upload_updated_config(
         raise gerrit.MergeConflictsError(commits=commits)
 
 
+def _clone_downstream_config(
+    template: copybot_argparser.DownstreamConfig,
+    branch: str,
+    remote_name: str,
+) -> copybot_argparser.DownstreamConfig:
+    """Create a deep-copied DownstreamConfig for a dynamic target branch."""
+    ds = copy.deepcopy(template)
+    ds.repo = template.repo
+    ds.branch = branch
+    ds.remote_name = remote_name
+    ds.head_sha = None
+    return ds
+
+
+def expand_branch_tag_downstreams(
+    config: copybot_argparser.CopybotConfig,
+) -> list[copybot_argparser.DownstreamConfig]:
+    """Expand template downstream into per-branch downstreams from tags."""
+    if not config.downstreams:
+        return []
+    template_ds = config.downstreams[0]
+    upstream = config.upstream
+    max_commits = upstream.history_length or upstream.history_limit
+    upstream_hashes = upstream.repo.log_hashes(
+        revision_range=upstream.head_sha,
+        subtree=upstream.subtree,
+        exclude_file_patterns=config.exclude_file_patterns,
+        num=max_commits,
+    )
+    if not upstream_hashes:
+        return []
+    if not upstream.history_length:
+        upstream.history_length = len(upstream_hashes)
+
+    remote_branches = set(
+        template_ds.repo.ls_remote_branches(str(template_ds.url)).keys()
+    )
+    target_branches: set[str] = set()
+    for rev in upstream_hashes:
+        msg = upstream.repo.get_commit_message(rev)
+        target_branches.update(get_commit_target_branches(msg, remote_branches))
+
+    oldest_upstream_rev = upstream_hashes[-1]
+    expanded: list[copybot_argparser.DownstreamConfig] = []
+    for idx, branch in enumerate(sorted(target_branches)):
+        ds = _clone_downstream_config(
+            template_ds,
+            branch=branch,
+            remote_name=f"{template_ds.remote_name}_{idx}",
+        )
+        if not ds.history_starts_with and not ds.history_limit:
+            ds.cl_dispatcher_history_starts_with = oldest_upstream_rev
+        expanded.append(ds)
+    return expanded
+
+
+def _process_downstream(
+    index: int,
+    downstream: copybot_argparser.DownstreamConfig,
+    GerritCls: type[gerrit.GerritInterface],
+    config: copybot_argparser.CopybotConfig,
+    patch_dir: str | "os.PathLike[str]",
+    skip_history_verify: bool = False,
+    skip_change_ids: set[str] | None = None,
+    deferred_conflict_commits: list[str] | None = None,
+) -> tuple[list[str], list[str]]:
+    """Process a single downstream target and return (applied, pending) revs."""
+    pending_changes: dict[str, gerrit.GerritClInfo] = {}
+    abandoned_changes: dict[str, gerrit.GerritClInfo] = {}
+    gerrit_inst: gerrit.GerritInterface | None = None
+
+    logger.info("[%d] Processing downstream %s", index, str(downstream))
+
+    if (m := is_server_gob(str(downstream.url))) is not None:
+        downstream_gob_host = m.group(1)
+        downstream_project = m.group(2)
+
+        gerrit_inst = GerritCls(
+            f"{downstream_gob_host}-review.googlesource.com"
+        )
+        pending_changes, abandoned_changes = gerrit_inst.find_pending_changes(
+            project=downstream_project,
+            branch=downstream.branch,
+            hashtags=[config.topic],
+            subtree=downstream.subtree,
+            exclude_paths=config.exclude_file_patterns,
+        )
+        logger.info(
+            "Found %s pending and %s abandoned changes already on Gerrit",
+            len(pending_changes),
+            len(abandoned_changes),
+        )
+
+    fetch_downstream_target_head_from_remote(config, downstream)
+
+    if skip_history_verify and downstream.head_sha:
+        ref_start = (
+            downstream.history_starts_with
+            or downstream.cl_dispatcher_history_starts_with
+        )
+        if ref_start:
+            try:
+                downstream.history_starts_with = downstream.repo.merge_base(
+                    ref_start, downstream.head_sha
+                )
+                downstream.history_limit = 0
+            except subprocess.CalledProcessError:
+                pass
+
+    downstream.history_length = fetch_history_length(downstream, "Downstream")
+
+    if not skip_history_verify:
+        try:
+            verify_repos_share_history_to_adjust_limits(
+                config, downstream, pending_changes
+            )
+        except NothingToDo as e:
+            logger.info(str(e))
+            return [], []
+
+    commit_files_map: dict[str, list[str]] = {}
+    skipped_files_map: dict[str, list[str]] = {}
+
+    include_change_id = (
+        are_repos_related(config.upstream, downstream)
+        and not config.ignore_change_id
+    )
+    (
+        commits_to_copy,
+        commit_files_map,
+        skipped_files_map,
+        copybot_skip_cls,
+        skip_cq_from_parse_logic,
+        owners_cls,
+    ) = find_commits_to_copy(
+        config,
+        config.upstream,
+        downstream,
+        pending_changes=pending_changes,
+        abandoned_changes=abandoned_changes,
+        include_change_id=include_change_id,
+        skip_change_ids=skip_change_ids,
+    )
+
+    if not commits_to_copy:
+        logger.info(
+            "[%s] Nothing to copy, proceeding to the next downstream",
+            downstream.remote_name,
+        )
+        return [], []
+
+    if not config.filter_changes:
+        downstream.subtree = ""
+        config.upstream.subtree = ""
+
+    if 0 < downstream.limit < len(commits_to_copy):
+        logger.warning(
+            "Limiting commits to copy from %s to %s",
+            len(commits_to_copy),
+            downstream.limit,
+        )
+        commits_to_copy = commits_to_copy[-downstream.limit :]
+
+    pending_rev, cl_count = find_pending_change_at_bottom_of_stack(
+        copybot_skip_cls=copybot_skip_cls,
+        commits_to_copy=commits_to_copy,
+        pending_changes=pending_changes,
+        config=config,
+        downstream=downstream,
+    )
+
+    try:
+        checkout_downstream_repo(
+            downstream,
+            commits_to_copy,
+            pending_changes,
+            cl_count,
+            pending_rev,
+        )
+    except NothingToDo as e:
+        logger.info(str(e))
+        return [], commits_to_copy
+
+    updated_commits_to_copy = commits_to_copy[
+        : (len(commits_to_copy) - cl_count)
+    ]
+    (
+        conflicted_revs,
+        empty_revs,
+        skipped_revs,
+        applied_cls,
+    ) = cherry_pick_commits_to_downstream(
+        config,
+        downstream,
+        patch_dir,
+        skipped_files_map,
+        commit_files_map,
+        commits_to_copy,
+        updated_commits_to_copy,
+        pending_changes,
+    )
+    skip_cq = True
+    if downstream.repo.rev_parse() == downstream.head_sha:
+        logger.info("Nothing to push!")
+    else:
+        skip_cq = (
+            any(conflicted_revs)
+            or skip_cq_from_parse_logic
+            or any(skipped_revs)
+            or any(cl in owners_cls for cl in applied_cls)
+        )
+        push_changes_to_downstream(
+            config, downstream, skip_cq, gerrit_inst, pending_changes
+        )
+
+    if config.config_file_path and not skip_cq and not skip_history_verify:
+        update_config_args = [
+            "--config",
+            config.config_file_path,
+            "--generate-config",
+            config.config_file_path,
+            "--upstream-history-starts-with",
+            config.upstream.history_starts_with,
+            "--upstream-history-limit",
+            str(config.upstream.history_limit),
+        ]
+        if len(config.downstreams) <= 1:
+            update_config_args += [
+                "--downstream-history-starts-with",
+                downstream.history_starts_with,
+                "--downstream-history-limit",
+                str(downstream.history_limit),
+            ]
+
+        if config.dry_run:
+            logger.info(
+                "Would have called update configs with %s",
+                update_config_args,
+            )
+        elif any(
+            "copybot-skip" in cl.hashtags for cl in pending_changes.values()
+        ):
+            logging.info(
+                "Skipping up/down stream history origins update due to"
+                " pending CL with copybot-skip hashtag"
+            )
+        else:
+            try:
+                copybot_argparser.generate_config(
+                    update_config_args, config.downstreams
+                )
+                upload_updated_config(config, downstream)
+            except gerrit.MergeConflictsError as e:
+                logger.exception(
+                    "Could not update up/down stream history origins %s", e
+                )
+    else:
+        logging.info("Skipping up/down stream history origins update due to:")
+        if any(conflicted_revs):
+            logging.info("Conflicted Revs")
+        if skip_cq_from_parse_logic:
+            logging.info("Parsing logic")
+        if any(skipped_revs):
+            logging.info("Skipped Revs")
+
+    try:
+        log_unapplied_commits(
+            config.upstream.repo,
+            empty_revs,
+            skipped_revs,
+            conflicted_revs,
+        )
+    except gerrit.MergeConflictsError as e:
+        if deferred_conflict_commits is None:
+            raise
+        if e.commits:
+            deferred_conflict_commits.extend(e.commits)
+    pending_revs = commits_to_copy[-cl_count:] if cl_count > 0 else []
+    return [*applied_cls, *conflicted_revs], pending_revs
+
+
+def run_milestone_waterfall(
+    GerritCls: type[gerrit.GerritInterface],
+    config: copybot_argparser.CopybotConfig,
+    patch_dir: str | "os.PathLike[str]",
+) -> None:
+    """Propagate missing commits from older milestone branches to newer ones."""
+    if not config.downstreams or not config.dynamic_downstream_pattern:
+        return
+
+    template_ds = copy.deepcopy(config.downstreams[0])
+    template_ds.repo = config.downstreams[0].repo
+    remote_branches = config.upstream.repo.ls_remote_branches(
+        str(config.upstream.url)
+    )
+    milestone_branches = discover_milestone_branches(
+        remote_branches,
+        config.dynamic_downstream_pattern,
+        config.min_milestone,
+    )
+    if not milestone_branches:
+        logger.info(
+            "No milestone branches matched pattern %s",
+            config.dynamic_downstream_pattern,
+        )
+        return
+
+    main_branch = config.upstream.branch or "main"
+    config.upstream.branch = main_branch
+    fetch_upstream_target_head_from_remote(config)
+    main_head_sha = config.upstream.head_sha
+    assert main_head_sha is not None
+
+    ordered_branches = [branch for _, branch in milestone_branches]
+    target_sequence = list(ordered_branches)
+    if config.include_main_branch and main_branch not in target_sequence:
+        target_sequence.append(main_branch)
+
+    dispatched_change_ids: dict[str, set[str]] = collections.defaultdict(set)
+    deferred_conflict_commits: list[str] = []
+
+    for idx, source_branch in enumerate(ordered_branches):
+        newer_targets = target_sequence[idx + 1 :]
+        if not newer_targets:
+            continue
+
+        config.upstream.branch = source_branch
+        fetch_upstream_target_head_from_remote(config)
+        assert config.upstream.head_sha is not None
+        branch_point = config.upstream.repo.merge_base(
+            config.upstream.head_sha, main_head_sha
+        )
+        if config.upstream.head_sha == branch_point:
+            logger.info(
+                "Source branch %s has no commits since branch point %s",
+                source_branch,
+                branch_point,
+            )
+            continue
+
+        config.upstream.history_starts_with = branch_point
+        config.upstream.history_limit = 0
+        config.upstream.history_length = fetch_history_length(
+            config.upstream, f"Upstream ({source_branch})"
+        )
+
+        for target_idx, target_branch in enumerate(newer_targets):
+            ds = _clone_downstream_config(
+                template_ds,
+                branch=target_branch,
+                remote_name=f"{template_ds.remote_name}_{idx}_{target_idx}",
+            )
+            ds.history_starts_with = branch_point
+            ds.history_limit = 0
+
+            applied_revs, pending_revs = _process_downstream(
+                target_idx,
+                ds,
+                GerritCls,
+                config,
+                patch_dir,
+                skip_history_verify=True,
+                skip_change_ids=dispatched_change_ids[target_branch],
+                deferred_conflict_commits=deferred_conflict_commits,
+            )
+            for rev in [*applied_revs, *pending_revs]:
+                msg = config.upstream.repo.get_commit_message(rev)
+                if cid := gerrit.get_change_id(msg):
+                    dispatched_change_ids[target_branch].add(cid)
+
+    if deferred_conflict_commits:
+        raise gerrit.MergeConflictsError(commits=deferred_conflict_commits)
+
+
 def run_copybot(
     GerritCls: type[gerrit.GerritInterface],
     config: copybot_argparser.CopybotConfig,
@@ -1408,206 +1895,33 @@ def run_copybot(
         config: The parsed command line arguments.
         patch_dir: A temporary directory to use for storing patch files.
     """
-    pending_changes: dict[str, gerrit.GerritClInfo] = {}
-    abandoned_changes: dict[str, gerrit.GerritClInfo] = {}
-    gerrit_inst: gerrit.GerritInterface | None = None
+    if config.dynamic_downstream_pattern:
+        run_milestone_waterfall(GerritCls, config, patch_dir)
+        return
 
     fetch_upstream_target_head_from_remote(config)
     config.upstream.history_length = fetch_history_length(
         config.upstream, "Upstream"
     )
 
+    if config.dispatch_branch_tags:
+        config.downstreams = expand_branch_tag_downstreams(config)
+
+    deferred_conflict_commits: list[str] | None = (
+        [] if config.dispatch_branch_tags else None
+    )
     for i, downstream in enumerate(config.downstreams):
-        logger.info("[%d] Processing downstream %s", i, str(downstream))
-
-        if (m := is_server_gob(str(downstream.url))) is not None:
-            downstream_gob_host = m.group(1)
-            downstream_project = m.group(2)
-
-            gerrit_inst = GerritCls(
-                f"{downstream_gob_host}-review.googlesource.com"
-            )
-            pending_changes, abandoned_changes = (
-                gerrit_inst.find_pending_changes(
-                    project=downstream_project,
-                    branch=downstream.branch,
-                    hashtags=[config.topic],
-                    subtree=downstream.subtree,
-                    exclude_paths=config.exclude_file_patterns,
-                )
-            )
-            logger.info(
-                "Found %s pending and %s abandoned changes already on Gerrit",
-                len(pending_changes),
-                len(abandoned_changes),
-            )
-
-        fetch_downstream_target_head_from_remote(config, downstream)
-
-        downstream.history_length = fetch_history_length(
-            downstream, "Downstream"
-        )
-
-        try:
-            verify_repos_share_history_to_adjust_limits(
-                config, downstream, pending_changes
-            )
-        except NothingToDo as e:
-            logger.info(str(e))
-            continue
-
-        commit_files_map: dict[str, list[str]] = {}
-        skipped_files_map: dict[str, list[str]] = {}
-
-        include_change_id = (
-            are_repos_related(config.upstream, downstream)
-            and not config.ignore_change_id
-        )
-        (
-            commits_to_copy,
-            commit_files_map,
-            skipped_files_map,
-            copybot_skip_cls,
-            skip_cq_from_parse_logic,
-            owners_cls,
-        ) = find_commits_to_copy(
-            config,
-            config.upstream,
+        _process_downstream(
+            i,
             downstream,
-            pending_changes=pending_changes,
-            abandoned_changes=abandoned_changes,
-            include_change_id=include_change_id,
-        )
-
-        if not commits_to_copy:
-            logger.info(
-                "[%s] Nothing to copy, proceeding to the next downstream",
-                downstream.remote_name,
-            )
-            continue
-
-        if not config.filter_changes:
-            downstream.subtree = ""
-            config.upstream.subtree = ""
-
-        if 0 < downstream.limit < len(commits_to_copy):
-            logger.warning(
-                "Limiting commits to copy from %s to %s",
-                len(commits_to_copy),
-                downstream.limit,
-            )
-            commits_to_copy = commits_to_copy[-downstream.limit :]
-
-        pending_rev, cl_count = find_pending_change_at_bottom_of_stack(
-            copybot_skip_cls=copybot_skip_cls,
-            commits_to_copy=commits_to_copy,
-            pending_changes=pending_changes,
-            config=config,
-            downstream=downstream,
-        )
-
-        try:
-            checkout_downstream_repo(
-                downstream,
-                commits_to_copy,
-                pending_changes,
-                cl_count,
-                pending_rev,
-            )
-        except NothingToDo as e:
-            logger.info(str(e))
-            continue
-
-        updated_commits_to_copy = commits_to_copy[
-            : (len(commits_to_copy) - cl_count)
-        ]
-        (
-            conflicted_revs,
-            empty_revs,
-            skipped_revs,
-            applied_cls,
-        ) = cherry_pick_commits_to_downstream(
+            GerritCls,
             config,
-            downstream,
             patch_dir,
-            skipped_files_map,
-            commit_files_map,
-            commits_to_copy,
-            updated_commits_to_copy,
-            pending_changes,
+            skip_history_verify=config.dispatch_branch_tags,
+            deferred_conflict_commits=deferred_conflict_commits,
         )
-        skip_cq = True
-        if downstream.repo.rev_parse() == downstream.head_sha:
-            logger.info("Nothing to push!")
-        else:
-            skip_cq = (
-                any(conflicted_revs)
-                or skip_cq_from_parse_logic
-                or any(skipped_revs)
-                or any(cl in owners_cls for cl in applied_cls)
-            )
-            push_changes_to_downstream(
-                config, downstream, skip_cq, gerrit_inst, pending_changes
-            )
-
-        if config.config_file_path and not skip_cq:
-            update_config_args = [
-                "--config",
-                config.config_file_path,
-                "--generate-config",
-                config.config_file_path,
-                "--upstream-history-starts-with",
-                config.upstream.history_starts_with,
-                "--upstream-history-limit",
-                str(config.upstream.history_limit),
-            ]
-            if len(config.downstreams) <= 1:
-                update_config_args += [
-                    "--downstream-history-starts-with",
-                    downstream.history_starts_with,
-                    "--downstream-history-limit",
-                    str(downstream.history_limit),
-                ]
-
-            if config.dry_run:
-                logger.info(
-                    "Would have called update configs with %s",
-                    update_config_args,
-                )
-            elif any(
-                "copybot-skip" in cl.hashtags for cl in pending_changes.values()
-            ):
-                logging.info(
-                    "Skipping up/down stream history origins update due to"
-                    " pending CL with copybot-skip hashtag"
-                )
-            else:
-                try:
-                    copybot_argparser.generate_config(
-                        update_config_args, config.downstreams
-                    )
-                    upload_updated_config(config, downstream)
-                except gerrit.MergeConflictsError as e:
-                    logger.exception(
-                        "Could not update up/down stream history origins %s", e
-                    )
-        else:
-            logging.info(
-                "Skipping up/down stream history origins update due to:"
-            )
-            if any(conflicted_revs):
-                logging.info("Conflicted Revs")
-            if skip_cq_from_parse_logic:
-                logging.info("Parsing logic")
-            if any(skipped_revs):
-                logging.info("Skipped Revs")
-
-        log_unapplied_commits(
-            config.upstream.repo,
-            empty_revs,
-            skipped_revs,
-            conflicted_revs,
-        )
+    if deferred_conflict_commits:
+        raise gerrit.MergeConflictsError(commits=deferred_conflict_commits)
 
 
 def truncate_to_bytes(

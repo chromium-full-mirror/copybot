@@ -1236,15 +1236,25 @@ class Gerrit:
                 if cl["status"] == "ABANDONED":
                     abandoned_change_ids[rev] = GerritClInfo(
                         change_id,
-                        cl["hashtags"].copy(),
+                        cl.get("hashtags", []).copy(),
                         current_revision_data["ref"],
                     )
                 else:
                     pending_change_ids[rev] = GerritClInfo(
                         change_id,
-                        cl["hashtags"].copy(),
+                        cl.get("hashtags", []).copy(),
                         current_revision_data["ref"],
                     )
+            if not rev_id:
+                info = GerritClInfo(
+                    change_id,
+                    cl.get("hashtags", []).copy(),
+                    current_revision_data["ref"],
+                )
+                if cl["status"] == "ABANDONED":
+                    abandoned_change_ids[change_id] = info
+                else:
+                    pending_change_ids[change_id] = info
         return pending_change_ids, abandoned_change_ids
 
 

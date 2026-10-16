@@ -1585,6 +1585,90 @@ def test_find_commits_to_copy_skips_abandoned_change_id(copybot_config) -> None:
     assert not commits_to_copy
 
 
+def test_find_commits_to_copy_skips_external_pending(copybot_config) -> None:
+    """Test find_commits_to_copy skips commits already open externally."""
+    upstream_rev = "1111111111111111111111111111111111111111"
+    copybot_config.upstream.repo.log_hashes = mock.Mock(
+        return_value=[upstream_rev]
+    )
+    copybot_config.downstreams[0].repo.log_hashes = mock.Mock(return_value=[])
+    external_pending = {
+        upstream_rev: gerrit.GerritClInfo(
+            change_id="Iexternal", hashtags="external-topic", ref="REF"
+        )
+    }
+    commits_to_copy, *_ = copybot.find_commits_to_copy(
+        copybot_config,
+        copybot_config.upstream,
+        copybot_config.downstreams[0],
+        external_pending_changes=external_pending,
+    )
+    assert not commits_to_copy
+
+
+def test_find_commits_to_copy_skips_external_pending_by_change_id(
+    copybot_config,
+) -> None:
+    """Test find_commits_to_copy skips external pending matched by Change-Id."""
+    upstream_rev = "1111111111111111111111111111111111111111"
+    copybot_config.upstream.repo.log_hashes = mock.Mock(
+        return_value=[upstream_rev]
+    )
+    copybot_config.downstreams[0].repo.log_hashes = mock.Mock(return_value=[])
+    external_pending = {
+        "some_other_rev": gerrit.GerritClInfo(
+            change_id=CHANGE_ID, hashtags="external-topic", ref="REF"
+        )
+    }
+    commits_to_copy, *_ = copybot.find_commits_to_copy(
+        copybot_config,
+        copybot_config.upstream,
+        copybot_config.downstreams[0],
+        external_pending_changes=external_pending,
+        include_change_id=True,
+    )
+    assert not commits_to_copy
+
+
+def test_process_downstream_push_error_handled_gracefully(
+    copybot_config,
+) -> None:
+    """Test that PushError during downstream push is caught and handled."""
+    downstream = copybot_config.downstreams[0]
+    downstream.head_sha = "head_sha"
+    downstream.repo.rev_parse = mock.Mock(return_value="different_sha")
+    downstream.repo.checkout = mock.Mock()
+    with (
+        mock.patch("copybot.fetch_downstream_target_head_from_remote"),
+        mock.patch("copybot.fetch_history_length", return_value=1),
+        mock.patch(
+            "copybot.find_commits_to_copy",
+            return_value=(["c1"], {}, {}, set(), False, set()),
+        ),
+        mock.patch("copybot.checkout_downstream_repo"),
+        mock.patch(
+            "copybot.cherry_pick_commits_to_downstream",
+            return_value=([], [], [], ["c1"]),
+        ),
+        mock.patch(
+            "copybot.push_changes_to_downstream",
+            side_effect=gerrit.PushError("push rejected"),
+        ),
+    ):
+        # pylint: disable=protected-access
+        applied, pending = copybot._process_downstream(
+            0,
+            downstream,
+            gerrit.Gerrit,
+            copybot_config,
+            patch_dir="/tmp",
+            skip_history_verify=True,
+        )
+        assert not applied
+        assert not pending
+        downstream.repo.checkout.assert_called_with("head_sha")
+
+
 def test_git_repo_ls_remote_and_merge_base(tmp_path):
     """Test GitRepo.ls_remote_branches and merge_base on a real git repo."""
     repo_dir = tmp_path / "repo"
@@ -2001,6 +2085,7 @@ def test_parse_firmware_dispatch_configs(tmp_path) -> None:
     assert branch_cfg.dispatch_branch_tags is True
     assert not branch_cfg.dynamic_downstream_pattern
     assert "BRANCH" in branch_cfg.downstreams[0].keep_pseudoheaders
+    assert "Change-Id" in branch_cfg.downstreams[0].keep_pseudoheaders
     assert (
         branch_cfg.merge_conflict_behavior
         is gerrit.MergeConflictBehavior.ALLOW_CONFLICT
@@ -2015,6 +2100,7 @@ def test_parse_firmware_dispatch_configs(tmp_path) -> None:
     )
     assert milestone_cfg.min_milestone == 150
     assert milestone_cfg.include_main_branch is True
+    assert "Change-Id" in milestone_cfg.downstreams[0].keep_pseudoheaders
     assert (
         milestone_cfg.merge_conflict_behavior
         is gerrit.MergeConflictBehavior.ALLOW_CONFLICT
@@ -2035,6 +2121,7 @@ def test_parse_firmware_dispatch_configs(tmp_path) -> None:
         ec_milestone_cfg.dynamic_downstream_pattern
         == r"^firmware-R(\d+)-[\d.]+\.B-main$"
     )
+    assert "Change-Id" in ec_milestone_cfg.downstreams[0].keep_pseudoheaders
 
     ec_jobs = copybot.create_luci_config(
         pathlib.Path(__file__).parent / "config" / "ec"

@@ -436,6 +436,7 @@ def find_commits_to_copy(
     downstream: copybot_argparser.DownstreamConfig,
     pending_changes: dict[str, gerrit.GerritClInfo] | None = None,
     abandoned_changes: dict[str, gerrit.GerritClInfo] | None = None,
+    external_pending_changes: dict[str, gerrit.GerritClInfo] | None = None,
     include_change_id: bool = False,
     skip_change_ids: set[str] | None = None,
 ) -> tuple[
@@ -454,6 +455,8 @@ def find_commits_to_copy(
         downstream: Configuration for downstream location.
         pending_changes: Changes pending in downstream repo.
         abandoned_changes: Changes abandoned in downstream repo.
+        external_pending_changes: Changes pending in downstream repo created
+            externally (not by CopyBot).
         include_change_id: Bool specifying whether or not to
             consider Change-Ids
         skip_change_ids: Optional set of Change-Ids already dispatched in
@@ -500,6 +503,15 @@ def find_commits_to_copy(
         for cid in skip_change_ids:
             if cid in upstream_change_ids:
                 downstreamed_revs.append(upstream_change_ids[cid])
+
+    if external_pending_changes:
+        for rev, cl in external_pending_changes.items():
+            if rev in upstream_hashes and rev not in downstreamed_revs:
+                downstreamed_revs.append(rev)
+            if include_change_id and cl.change_id in upstream_change_ids:
+                mapped_rev = upstream_change_ids[cl.change_id]
+                if mapped_rev not in downstreamed_revs:
+                    downstreamed_revs.append(mapped_rev)
 
     if pending_changes and include_change_id:
         for cl in list(pending_changes.values()):
@@ -1577,6 +1589,7 @@ def _process_downstream(
 ) -> tuple[list[str], list[str]]:
     """Process a single downstream target and return (applied, pending) revs."""
     pending_changes: dict[str, gerrit.GerritClInfo] = {}
+    external_pending_changes: dict[str, gerrit.GerritClInfo] = {}
     abandoned_changes: dict[str, gerrit.GerritClInfo] = {}
     gerrit_inst: gerrit.GerritInterface | None = None
 
@@ -1589,16 +1602,23 @@ def _process_downstream(
         gerrit_inst = GerritCls(
             f"{downstream_gob_host}-review.googlesource.com"
         )
-        pending_changes, abandoned_changes = gerrit_inst.find_pending_changes(
+        all_pending, abandoned_changes = gerrit_inst.find_pending_changes(
             project=downstream_project,
             branch=downstream.branch,
-            hashtags=[config.topic],
             subtree=downstream.subtree,
             exclude_paths=config.exclude_file_patterns,
         )
+        for k, v in all_pending.items():
+            if config.topic in v.hashtags:
+                pending_changes[k] = v
+            else:
+                external_pending_changes[k] = v
         logger.info(
-            "Found %s pending and %s abandoned changes already on Gerrit",
+            "Found %s pending (%s bot, %s external) and %s abandoned "
+            "changes already on Gerrit",
+            len(all_pending),
             len(pending_changes),
+            len(external_pending_changes),
             len(abandoned_changes),
         )
 
@@ -1649,6 +1669,7 @@ def _process_downstream(
         downstream,
         pending_changes=pending_changes,
         abandoned_changes=abandoned_changes,
+        external_pending_changes=external_pending_changes,
         include_change_id=include_change_id,
         skip_change_ids=skip_change_ids,
     )
@@ -1720,9 +1741,20 @@ def _process_downstream(
             or any(skipped_revs)
             or any(cl in owners_cls for cl in applied_cls)
         )
-        push_changes_to_downstream(
-            config, downstream, skip_cq, gerrit_inst, pending_changes
-        )
+        try:
+            push_changes_to_downstream(
+                config, downstream, skip_cq, gerrit_inst, pending_changes
+            )
+        except gerrit.PushError as e:
+            logger.warning(
+                "Could not push changes to target branch %s: %s. "
+                "Skipping target branch.",
+                downstream.branch,
+                e,
+            )
+            if downstream.head_sha:
+                downstream.repo.checkout(downstream.head_sha)
+            return [], []
 
     if config.config_file_path and not skip_cq and not skip_history_verify:
         update_config_args = [

@@ -2020,6 +2020,14 @@ def test_parse_firmware_dispatch_configs(tmp_path) -> None:
         is gerrit.MergeConflictBehavior.ALLOW_CONFLICT
     )
 
+    coreboot_main_cfg = copybot_argparser.parse_copybot_config(
+        tmp_path, ["--config", "config/coreboot/main.ini"]
+    )
+    assert (
+        "Change-Id" not in coreboot_main_cfg.downstreams[0].keep_pseudoheaders
+    )
+    assert "BRANCH" in coreboot_main_cfg.downstreams[0].keep_pseudoheaders
+
     ec_milestone_cfg = copybot_argparser.parse_copybot_config(
         tmp_path, ["--config", "config/ec/milestone-dispatch.ini"]
     )

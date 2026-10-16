@@ -250,7 +250,11 @@ def generate_config(
     with open(opts.generate_config, "w", encoding="utf-8") as outfile:
         outfile.write("[copybot]\n")
         exclude_args = ["config", "generate_config", "dry_run", "json_out"]
-        no_quote_keys = ["merge_conflict_behavior", "exclude_method"]
+        no_quote_keys = [
+            "merge_conflict_behavior",
+            "exclude_method",
+            "commit_message_formatting",
+        ]
         for name, value in vars(opts).items():
             if (
                 name in exclude_args
@@ -269,6 +273,13 @@ def generate_config(
             elif isinstance(value, str) and name not in no_quote_keys:
                 value = f'"{value}"'
             outfile.write(f"{dest_to_option[name]} = {value}\n")
+
+
+def strip_quotes(value: str | None) -> str | None:
+    """Strip leading and trailing single or double quotes from string."""
+    if value is not None:
+        return value.strip("\"'")
+    return value
 
 
 def create_arg_parser() -> configargparse.ArgumentParser:
@@ -371,12 +382,14 @@ def create_arg_parser() -> configargparse.ArgumentParser:
         help="How to handle exclusions.  DROP: Drop the change."
         "FILTER: Filter the exclude-file-pattern matching files out of"
         " the CLs.",
+        type=strip_quotes,
         default="DROP",
         choices=[behavior.name for behavior in gerrit.ExclusionBehavior],
     )
     parser.add_argument(
         "--merge-conflict-behavior",
         help="How to handle merge conflicts",
+        type=strip_quotes,
         default="SKIP",
         choices=[behavior.name for behavior in gerrit.MergeConflictBehavior],
     )
@@ -536,6 +549,7 @@ def create_arg_parser() -> configargparse.ArgumentParser:
     parser.add_argument(
         "--commit-message-formatting",
         help="Format the commit message according to the specified rule",
+        type=strip_quotes,
         choices=[f.value for f in CommitMessageFormat],
         default=None,
     )

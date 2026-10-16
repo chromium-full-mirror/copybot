@@ -1035,6 +1035,76 @@ class TestGenerateConfig:
                 ]
             )
 
+    def test_generate_config_commit_message_formatting_no_quotes(self) -> None:
+        """Test that commit_message_formatting is generated without quotes."""
+        copybot_argparser.generate_config(
+            [
+                "--generate-config",
+                self.config_file,
+                "--upstream-url",
+                "https://upstream.repo.git:main:",
+                "--downstream-url",
+                "https://downstream.repo.git:main:",
+                "--commit-message-formatting",
+                "chromeos_to_android",
+            ]
+        )
+        with open(self.config_file, "r", encoding="utf-8") as f:
+            content = f.read()
+        assert "commit-message-formatting = chromeos_to_android\n" in content
+        # Ensure it parses back cleanly
+        argv = ["--config", self.config_file]
+        config = copybot_argparser.parse_copybot_config(
+            pathlib.Path(self.temp_dir), argv
+        )
+        assert (
+            config.commit_message_formatting
+            == copybot_argparser.CommitMessageFormat.CHROMEOS_TO_ANDROID
+        )
+
+    def test_parse_commit_message_formatting_with_quotes(self) -> None:
+        """Test parsing commit-message-formatting with quotes from ini."""
+        ini_path = os.path.join(self.temp_dir, "quoted.ini")
+        with open(ini_path, "w", encoding="utf-8") as f:
+            f.write(
+                "[copybot]\n"
+                'upstream-url = "https://upstream.git:main:"\n'
+                'downstream-url = "https://downstream.git:main:"\n'
+                'commit-message-formatting = "chromeos_to_android"\n'
+            )
+        config = copybot_argparser.parse_copybot_config(
+            pathlib.Path(self.temp_dir), ["--config", ini_path]
+        )
+        assert (
+            config.commit_message_formatting
+            == copybot_argparser.CommitMessageFormat.CHROMEOS_TO_ANDROID
+        )
+
+    def test_parse_choices_with_quotes(self) -> None:
+        """Test parsing arguments with choices when quoted in ini."""
+        ini_path = os.path.join(self.temp_dir, "quoted_choices.ini")
+        with open(ini_path, "w", encoding="utf-8") as f:
+            f.write(
+                "[copybot]\n"
+                'upstream-url = "https://upstream.git:main:"\n'
+                'downstream-url = "https://downstream.git:main:"\n'
+                'exclude-method = "FILTER"\n'
+                'merge-conflict-behavior = "ALLOW_CONFLICT"\n'
+                'commit-message-formatting = "chromeos_to_android"\n'
+            )
+        config = copybot_argparser.parse_copybot_config(
+            pathlib.Path(self.temp_dir), ["--config", ini_path]
+        )
+        assert config.exclude_method == "FILTER"
+        assert (
+            config.merge_conflict_behavior
+            == gerrit.MergeConflictBehavior.ALLOW_CONFLICT
+        )
+        assert (
+            config.commit_message_formatting
+            == copybot_argparser.CommitMessageFormat.CHROMEOS_TO_ANDROID
+        )
+
     def test_config_downstreams(self) -> None:
         """Test that parsing downstream dictionaries behave as expected."""
         config_file_path = "./tests/test_config_downstreams.ini"

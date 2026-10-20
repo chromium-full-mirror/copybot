@@ -93,7 +93,7 @@ REWORD_TAG: Final[str] = "copybot-reword"
 REBASE_TAG: Final[str] = "copybot-rebase"
 
 _IGNORED_BRANCH_TAGS: Final[frozenset[str]] = frozenset(
-    {"", "none", "n/a", "na", "main", "all"}
+    {"", "none", "n/a", "na", "main", "ec-legacy", "all"}
 )
 _BRANCH_TAG_HEADERS: Final[tuple[str, ...]] = (
     "BRANCH",

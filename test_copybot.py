@@ -2168,11 +2168,31 @@ def test_parse_firmware_dispatch_configs(tmp_path) -> None:
     )
     assert "Change-Id" in ec_milestone_cfg.downstreams[0].keep_pseudoheaders
 
+    ec_legacy_milestone_cfg = copybot_argparser.parse_copybot_config(
+        tmp_path, ["--config", "config/ec/milestone-dispatch-legacy.ini"]
+    )
+    assert (
+        ec_legacy_milestone_cfg.dynamic_downstream_pattern
+        == r"^firmware-R(\d+)-[\d.]+\.B-ec-legacy$"
+    )
+    assert ec_legacy_milestone_cfg.upstream.branch == "ec-legacy"
+    assert (
+        "Change-Id" in ec_legacy_milestone_cfg.downstreams[0].keep_pseudoheaders
+    )
+
+    ec_legacy_branch_cfg = copybot_argparser.parse_copybot_config(
+        tmp_path, ["--config", "config/ec/branch-dispatch-legacy.ini"]
+    )
+    assert ec_legacy_branch_cfg.dispatch_branch_tags is True
+    assert ec_legacy_branch_cfg.upstream.branch == "ec-legacy"
+
     ec_jobs = copybot.create_luci_config(
         pathlib.Path(__file__).parent / "config" / "ec"
     )
     assert len(ec_jobs) == 1
     assert ec_jobs[0].config_file == [
+        "branch-dispatch-legacy.ini",
         "branch-dispatch.ini",
+        "milestone-dispatch-legacy.ini",
         "milestone-dispatch.ini",
     ]

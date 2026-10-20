@@ -1605,6 +1605,7 @@ def _process_downstream(
         all_pending, abandoned_changes = gerrit_inst.find_pending_changes(
             project=downstream_project,
             branch=downstream.branch,
+            hashtags=[config.topic] if config.topic else (),
             subtree=downstream.subtree,
             exclude_paths=config.exclude_file_patterns,
         )

@@ -1630,6 +1630,51 @@ def test_find_commits_to_copy_skips_external_pending_by_change_id(
     assert not commits_to_copy
 
 
+def test_find_pending_changes_scopes_abandoned_and_skips_missing_revision() -> (
+    None
+):
+    """Test find_pending_changes scopes abandoned CLs and guards revision."""
+    gerrit_inst = gerrit.Gerrit("chromium-review.googlesource.com")
+    rev_hash = "1111111111111111111111111111111111111111"
+    search_results = [
+        {"change_id": "Imissing_current_rev", "status": "NEW"},
+        {
+            "change_id": "Imissing_revisions_dict",
+            "status": "NEW",
+            "current_revision": "deadbeef",
+        },
+        {
+            "change_id": CHANGE_ID,
+            "status": "NEW",
+            "hashtags": ["ec-milestone-dispatch"],
+            "current_revision": "rev1",
+            "revisions": {
+                "rev1": {
+                    "ref": "refs/changes/01/1/1",
+                    "commit": {
+                        "message": f"Fix\n\nGitOrigin-RevId: {rev_hash}\n"
+                    },
+                }
+            },
+        },
+    ]
+    with mock.patch.object(
+        gerrit_inst, "search", return_value=search_results
+    ) as mock_search:
+        pending, abandoned = gerrit_inst.find_pending_changes(
+            project="chromiumos/platform/ec",
+            branch="main",
+            hashtags=["ec-milestone-dispatch"],
+        )
+    mock_search.assert_called_once_with(
+        "(status:open or (status:abandoned hashtag:ec-milestone-dispatch)) "
+        "project:chromiumos/platform/ec branch:main"
+    )
+    assert rev_hash in pending
+    assert pending[rev_hash].change_id == CHANGE_ID
+    assert not abandoned
+
+
 def test_process_downstream_push_error_handled_gracefully(
     copybot_config,
 ) -> None:

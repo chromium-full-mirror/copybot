@@ -1196,18 +1196,35 @@ class Gerrit:
     ) -> Tuple[Dict[str, GerritClInfo], Dict[str, GerritClInfo]]:
         """Find pending changes previously opened by CopyBot on Gerrit.
 
+        Args:
+            project: Project name on Gerrit.
+            branch: Branch name to search for changes.
+            hashtags: Hashtags used to scope `status:abandoned` changes.
+                Note that all `status:open` changes on the branch are
+                returned regardless of the provided hashtags.
+            subtree: Subtree path to scope search.
+            exclude_paths: Paths to exclude from search.
+
         Returns:
             A dictionary mapping upstream commit hashes to their
             current Change-Id on Gerrit and their associated hashtags.
         """
+        hashtag_terms = [
+            f"hashtag:{hashtag}" for hashtag in hashtags if hashtag
+        ]
+        if hashtag_terms:
+            hashtag_clause = " ".join(hashtag_terms)
+            status_query = (
+                f"(status:open or (status:abandoned {hashtag_clause}))"
+            )
+        else:
+            status_query = "(status:open or status:abandoned)"
         query = [
-            "(status:open or status:abandoned)",
+            status_query,
             f"project:{project}",
             f"branch:{branch}",
         ]
         _, subtree_ext = os.path.splitext(subtree)
-        if hashtags:
-            query.extend(f"hashtag:{hashtag}" for hashtag in hashtags)
         if subtree and not subtree_ext:
             query.append(f"directory:{subtree}")
         if exclude_paths:
@@ -1219,9 +1236,16 @@ class Gerrit:
         pending_change_ids = {}
         abandoned_change_ids = {}
         for cl in query_result:
-            change_id = cl["change_id"]
-            current_revision_hash = cl["current_revision"]
-            current_revision_data = cl["revisions"][current_revision_hash]
+            change_id = cl.get("change_id")
+            current_revision_hash = cl.get("current_revision")
+            revisions = cl.get("revisions", {})
+            if (
+                not change_id
+                or not current_revision_hash
+                or current_revision_hash not in revisions
+            ):
+                continue
+            current_revision_data = revisions[current_revision_hash]
             commit_message = current_revision_data["commit"]["message"]
             origin_rev_id = get_origin_rev_id(commit_message)
             rev_id = []

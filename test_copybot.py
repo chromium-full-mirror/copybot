@@ -2196,3 +2196,36 @@ def test_parse_firmware_dispatch_configs(tmp_path) -> None:
         "milestone-dispatch-legacy.ini",
         "milestone-dispatch.ini",
     ]
+
+
+def test_run_git_suppresses_processing_changes_stderr(
+    tmp_path: pathlib.Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Test _run_git suppresses remote: Processing changes lines on error."""
+    # pylint: disable=protected-access
+    repo = gerrit.GitRepo(tmp_path)
+    stderr_output = (
+        "remote: \n"
+        "remote: Processing changes: (\\)        \r"
+        "remote: Processing changes: (|)        \r"
+        "remote: Processing changes: updated: 144 (/)        \r"
+        '[W git.go:288] Transient error string identified in STDERR: "'
+        'remote: \\rremote: Processing changes: (\\\\)"\n'
+        "remote: Processing changes: refs: 1, done            \n"
+        " ! [remote rejected] HEAD -> refs/for/main (no new changes)\n"
+    )
+    err = gerrit.subprocess.CalledProcessError(
+        returncode=1,
+        cmd=["git", "push"],
+        output="",
+        stderr=stderr_output,
+    )
+    with mock.patch("subprocess.run", side_effect=err):
+        with caplog.at_level(logging.ERROR):
+            with pytest.raises(gerrit.subprocess.CalledProcessError):
+                repo._run_git("push")
+
+    logged_text = "\n".join(r.getMessage() for r in caplog.records)
+    assert "Processing changes" not in logged_text
+    assert "Transient error string identified in STDERR:" not in logged_text
+    assert "! [remote rejected] HEAD -> refs/for/main" in logged_text

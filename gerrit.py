@@ -332,6 +332,14 @@ class GitRepo:
                 if e.stderr:
                     logger.error("  STDERR:")
                     for line in e.stderr.splitlines():
+                        if (
+                            line.strip().startswith(
+                                "remote: Processing changes"
+                            )
+                            or "Transient error string identified in STDERR:"
+                            in line
+                        ):
+                            continue
                         logger.error("    %s", line)
             raise
 

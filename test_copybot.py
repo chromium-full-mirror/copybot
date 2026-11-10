@@ -2166,6 +2166,7 @@ def test_parse_firmware_dispatch_configs(tmp_path) -> None:
         ec_milestone_cfg.dynamic_downstream_pattern
         == r"^firmware-R(\d+)-[\d.]+\.B-main$"
     )
+    assert ec_milestone_cfg.min_milestone == 149
     assert "Change-Id" in ec_milestone_cfg.downstreams[0].keep_pseudoheaders
 
     ec_legacy_milestone_cfg = copybot_argparser.parse_copybot_config(
